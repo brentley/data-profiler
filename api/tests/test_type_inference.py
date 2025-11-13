@@ -13,7 +13,7 @@ Tests type detection for columns:
 """
 
 import pytest
-from services.types import TypeInferencer, ColumnType
+from services.types import TypeInferrer, ColumnType
 
 
 class TestNumericTypeInference:
@@ -22,7 +22,7 @@ class TestNumericTypeInference:
     def test_integers_only(self):
         """Should detect integers as numeric."""
         values = ["123", "456", "789", "0", "999999"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.NUMERIC
@@ -31,7 +31,7 @@ class TestNumericTypeInference:
     def test_decimals_numeric(self):
         """Should detect decimals as numeric."""
         values = ["123.45", "67.89", "0.5", "999.0"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.NUMERIC
@@ -40,7 +40,7 @@ class TestNumericTypeInference:
     def test_mixed_integers_and_decimals(self):
         """Should detect mixed integers and decimals as numeric."""
         values = ["123", "45.67", "89", "0.5"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.NUMERIC
@@ -48,7 +48,7 @@ class TestNumericTypeInference:
     def test_invalid_numeric_with_comma(self):
         """Commas should invalidate numeric type."""
         values = ["123", "1,234", "567"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Should detect as mixed or varchar due to invalid format
@@ -58,7 +58,7 @@ class TestNumericTypeInference:
     def test_invalid_numeric_with_dollar(self):
         """Dollar signs should invalidate numeric type."""
         values = ["123", "$456", "789"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type != ColumnType.NUMERIC
@@ -67,7 +67,7 @@ class TestNumericTypeInference:
     def test_negative_numbers(self):
         """Negative numbers with minus sign."""
         values = ["-123", "-45.67", "89"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Depends on spec: if minus allowed in numeric
@@ -77,7 +77,7 @@ class TestNumericTypeInference:
     def test_numeric_with_nulls(self):
         """Nulls should be allowed in numeric columns."""
         values = ["123", "", "456", None, "789"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.NUMERIC
@@ -86,7 +86,7 @@ class TestNumericTypeInference:
     def test_scientific_notation_not_numeric(self):
         """Scientific notation should not be valid numeric."""
         values = ["1.23e5", "4.56E-2", "789"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type != ColumnType.NUMERIC
@@ -98,7 +98,7 @@ class TestMoneyTypeInference:
     def test_valid_money_two_decimals(self):
         """Should detect money with exactly 2 decimals."""
         values = ["123.45", "67.89", "0.00", "999.99"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.MONEY
@@ -107,7 +107,7 @@ class TestMoneyTypeInference:
     def test_money_one_decimal_invalid(self):
         """Money with 1 decimal should be invalid."""
         values = ["123.4", "67.89", "0.0"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Should detect money attempt but with violations
@@ -117,7 +117,7 @@ class TestMoneyTypeInference:
     def test_money_three_decimals_invalid(self):
         """Money with 3 decimals should be invalid."""
         values = ["123.456", "67.890"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.invalid_count > 0
@@ -125,7 +125,7 @@ class TestMoneyTypeInference:
     def test_money_with_dollar_sign_invalid(self):
         """Dollar signs should be disallowed."""
         values = ["$123.45", "$67.89"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.invalid_count > 0
@@ -134,7 +134,7 @@ class TestMoneyTypeInference:
     def test_money_with_comma_invalid(self):
         """Commas should be disallowed."""
         values = ["1,234.56", "67.89"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.invalid_count > 0
@@ -142,7 +142,7 @@ class TestMoneyTypeInference:
     def test_money_with_parentheses_invalid(self):
         """Parentheses (negative) should be disallowed."""
         values = ["(123.45)", "67.89"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.invalid_count > 0
@@ -150,7 +150,7 @@ class TestMoneyTypeInference:
     def test_money_zero_value(self):
         """Zero money values should be valid."""
         values = ["0.00", "123.45", "0.00"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.MONEY
@@ -158,7 +158,7 @@ class TestMoneyTypeInference:
     def test_money_with_nulls(self):
         """Nulls should be allowed in money columns."""
         values = ["123.45", "", None, "67.89"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.MONEY
@@ -171,7 +171,7 @@ class TestDateTypeInference:
     def test_yyyymmdd_format(self):
         """Should detect YYYYMMDD format (preferred)."""
         values = ["20220101", "20220215", "20221231"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -180,7 +180,7 @@ class TestDateTypeInference:
     def test_yyyy_mm_dd_format(self):
         """Should detect YYYY-MM-DD format."""
         values = ["2022-01-01", "2022-02-15", "2022-12-31"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -189,7 +189,7 @@ class TestDateTypeInference:
     def test_mm_dd_yyyy_format(self):
         """Should detect MM/DD/YYYY format."""
         values = ["01/01/2022", "02/15/2022", "12/31/2022"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -198,7 +198,7 @@ class TestDateTypeInference:
     def test_mixed_date_formats_error(self):
         """Mixed date formats should generate errors."""
         values = ["20220101", "2022-02-15", "03/01/2022"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Should detect as mixed or date with errors
@@ -207,7 +207,7 @@ class TestDateTypeInference:
     def test_consistent_format_required(self):
         """One consistent format per column is required."""
         values = ["20220101", "20220201", "20220301"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -217,7 +217,7 @@ class TestDateTypeInference:
     def test_date_out_of_range_year_low(self):
         """Year < 1900 should generate warning."""
         values = ["18991231", "19000101", "20220101"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -226,7 +226,7 @@ class TestDateTypeInference:
     def test_date_out_of_range_year_high(self):
         """Year > current + 1 should generate warning."""
         values = ["20220101", "20500101", "20220201"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -235,7 +235,7 @@ class TestDateTypeInference:
     def test_date_with_nulls(self):
         """Nulls should be allowed in date columns."""
         values = ["20220101", "", None, "20220201"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.DATE
@@ -244,7 +244,7 @@ class TestDateTypeInference:
     def test_invalid_date_values(self):
         """Invalid date values should be counted."""
         values = ["20220101", "20229999", "20220229"]  # Feb 29 in non-leap year
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Depends on validation strictness
@@ -257,7 +257,7 @@ class TestStringTypeInference:
     def test_alpha_all_letters(self):
         """Should detect alpha for all letter strings."""
         values = ["abc", "def", "xyz", "hello"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.ALPHA
@@ -265,7 +265,7 @@ class TestStringTypeInference:
     def test_varchar_mixed_content(self):
         """Should detect varchar for mixed content."""
         values = ["abc123", "hello world", "test@example.com"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.VARCHAR
@@ -273,7 +273,7 @@ class TestStringTypeInference:
     def test_code_low_cardinality(self):
         """Should detect code for low cardinality strings."""
         values = ["A", "B", "A", "C", "B", "A", "B", "C"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.CODE
@@ -283,7 +283,7 @@ class TestStringTypeInference:
     def test_varchar_high_cardinality(self):
         """Should detect varchar for high cardinality strings."""
         values = [f"value_{i}" for i in range(100)]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.VARCHAR
@@ -291,7 +291,7 @@ class TestStringTypeInference:
     def test_empty_strings_as_nulls(self):
         """Empty strings should count as nulls."""
         values = ["abc", "", "def", ""]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.null_count == 2
@@ -303,7 +303,7 @@ class TestMixedTypeInference:
     def test_mixed_numeric_and_string(self):
         """Should detect mixed when both numeric and string."""
         values = ["123", "abc", "456", "def"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.MIXED
@@ -311,7 +311,7 @@ class TestMixedTypeInference:
     def test_mixed_date_and_string(self):
         """Should detect mixed when both date and string."""
         values = ["20220101", "abc", "20220201"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.MIXED
@@ -319,7 +319,7 @@ class TestMixedTypeInference:
     def test_mostly_numeric_few_invalid(self):
         """Mostly numeric with few invalid should be numeric with errors."""
         values = ["123", "456", "789", "abc", "999"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         # Threshold: if > 90% match, consider that type with errors
@@ -332,7 +332,7 @@ class TestUnknownTypeInference:
     def test_all_nulls(self):
         """All nulls should be unknown."""
         values = ["", None, "", None]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.UNKNOWN
@@ -340,7 +340,7 @@ class TestUnknownTypeInference:
     def test_empty_column(self):
         """Empty column should be unknown."""
         values = []
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert result.inferred_type == ColumnType.UNKNOWN
@@ -352,7 +352,7 @@ class TestTypeInferencerConfig:
     def test_sample_size_limit(self):
         """Should sample large columns efficiently."""
         values = [f"val_{i}" for i in range(100000)]
-        inferencer = TypeInferencer(sample_size=1000)
+        inferencer = TypeInferrer(sample_size=1000)
 
         result = inferencer.infer_type(values)
         # Should still infer correctly from sample
@@ -361,7 +361,7 @@ class TestTypeInferencerConfig:
     def test_confidence_threshold(self):
         """Should report confidence level."""
         values = ["123", "456", "789"]
-        inferencer = TypeInferencer()
+        inferencer = TypeInferrer()
 
         result = inferencer.infer_type(values)
         assert hasattr(result, 'confidence')
@@ -370,7 +370,7 @@ class TestTypeInferencerConfig:
     def test_type_hints_override(self):
         """Should allow manual type hints."""
         values = ["123", "456", "789"]
-        inferencer = TypeInferencer(type_hint=ColumnType.MONEY)
+        inferencer = TypeInferrer(type_hint=ColumnType.MONEY)
 
         result = inferencer.infer_type(values)
         # Should try money first, but fail (need 2 decimals)
