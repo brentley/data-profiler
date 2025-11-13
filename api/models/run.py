@@ -231,3 +231,44 @@ class ProfileResponse(BaseModel):
     warnings: List[ErrorDetail] = Field(default_factory=list, description="Warnings encountered")
     columns: List[ColumnProfileResponse] = Field(default_factory=list, description="Column profiles")
     candidate_keys: List[CandidateKey] = Field(default_factory=list, description="Suggested candidate keys")
+
+
+class CandidateKeysResponse(BaseModel):
+    """Response model for candidate keys endpoint."""
+
+    run_id: UUID = Field(..., description="Run identifier")
+    candidate_keys: List[CandidateKey] = Field(..., description="Suggested candidate keys")
+    total_rows: int = Field(..., description="Total number of rows analyzed")
+
+
+class ConfirmKeysRequest(BaseModel):
+    """Request model for confirming candidate keys."""
+
+    keys: List[str] = Field(..., description="Column names to use as confirmed keys", min_length=1)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "keys": ["id"]
+            }
+        }
+
+
+class DuplicateGroup(BaseModel):
+    """Information about a group of duplicate rows."""
+
+    key_value: str = Field(..., description="The duplicated key value")
+    count: int = Field(..., description="Number of rows with this key")
+    row_numbers: List[int] = Field(..., description="Row numbers of duplicates")
+
+
+class DuplicateDetectionResponse(BaseModel):
+    """Response model for duplicate detection."""
+
+    run_id: UUID = Field(..., description="Run identifier")
+    confirmed_keys: List[str] = Field(..., description="Keys used for duplicate detection")
+    has_duplicates: bool = Field(..., description="Whether duplicates were found")
+    duplicate_count: int = Field(..., description="Number of duplicate key values")
+    total_duplicate_rows: int = Field(..., description="Total number of duplicate rows")
+    duplicate_percentage: float = Field(..., description="Percentage of rows that are duplicates")
+    duplicate_groups: List[DuplicateGroup] = Field(default_factory=list, description="Top duplicate groups")

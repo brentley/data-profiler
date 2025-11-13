@@ -18,10 +18,14 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..models.run import (
-    FileMetadata,
     CandidateKey,
+    CandidateKeysResponse,
     ColumnProfileResponse,
+    ConfirmKeysRequest,
+    DuplicateDetectionResponse,
+    DuplicateGroup,
     ErrorDetail,
+    FileMetadata,
     FileUploadResponse,
     ProfileResponse,
     RunCreate,
@@ -1096,3 +1100,257 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         json.dump(profile_dict, f, indent=2)
 
     return profile
+
+
+@router.get("/{run_id}/candidate-keys", response_model=CandidateKeysResponse)
+async def get_candidate_keys(run_id: UUID) -> CandidateKeysResponse:
+    """
+    Get candidate key suggestions for a completed run.
+
+    Returns suggested candidate keys based on high cardinality and low null counts.
+    Keys are scored using the formula: distinct_ratio * (1 - null_ratio)
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        CandidateKeysResponse with suggested keys and metadata
+
+    Raises:
+        HTTPException: If run not found or not completed
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    # Check if processing is complete
+    if metadata.state != RunState.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Processing not complete yet (state: {metadata.state})"
+        )
+
+    # Check if we have column profiles
+    if not metadata.column_profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile data available"
+        )
+
+    # Read the normalized CSV to get row count
+    run_dir = workspace.get_run_dir(run_id)
+    normalized_csv = run_dir / "normalized.csv"
+
+    if not normalized_csv.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile data not found"
+        )
+
+    # Count rows
+    row_count = 0
+    with open(normalized_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=metadata.delimiter)
+        for _ in reader:
+            row_count += 1
+
+    # Generate candidate keys based on distinct ratios and null counts
+    candidate_keys = []
+    for col_name, profile in metadata.column_profiles.items():
+        distinct_pct = profile.get("distinct_pct", 0.0)
+
+        if distinct_pct >= 95.0:  # High cardinality threshold
+            null_count = profile.get("null_count", 0)
+            distinct_count = profile.get("distinct_count", 0)
+
+            distinct_ratio = distinct_count / row_count if row_count > 0 else 0.0
+            null_ratio = null_count / row_count if row_count > 0 else 0.0
+            score = distinct_ratio * (1.0 - null_ratio)
+
+            if score >= 0.9:  # Only suggest strong candidates
+                candidate_keys.append(CandidateKey(
+                    columns=[col_name],
+                    distinct_ratio=distinct_ratio,
+                    null_ratio_sum=null_ratio,
+                    score=score
+                ))
+
+    # Sort by score descending
+    candidate_keys.sort(key=lambda k: k.score, reverse=True)
+
+    return CandidateKeysResponse(
+        run_id=run_id,
+        candidate_keys=candidate_keys[:5],  # Top 5 candidates
+        total_rows=row_count
+    )
+
+
+@router.post("/{run_id}/confirm-keys", response_model=DuplicateDetectionResponse)
+async def confirm_keys(run_id: UUID, request: ConfirmKeysRequest) -> DuplicateDetectionResponse:
+    """
+    Confirm candidate keys and run duplicate detection.
+
+    Accepts user-confirmed key columns and performs exact duplicate detection
+    based on those keys. Results are stored in workspace metadata.
+
+    Args:
+        run_id: Run UUID
+        request: ConfirmKeysRequest with column names to use as keys
+
+    Returns:
+        DuplicateDetectionResponse with duplicate detection results
+
+    Raises:
+        HTTPException: If run not found, not completed, or keys invalid
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    # Check if processing is complete
+    if metadata.state != RunState.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Processing not complete yet (state: {metadata.state})"
+        )
+
+    # Verify confirmed keys exist in column profiles
+    if not metadata.column_profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile data available"
+        )
+
+    available_columns = set(metadata.column_profiles.keys())
+    confirmed_keys = request.keys
+    invalid_keys = [k for k in confirmed_keys if k not in available_columns]
+
+    if invalid_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid key columns: {', '.join(invalid_keys)}"
+        )
+
+    # Read the normalized CSV and detect duplicates
+    run_dir = workspace.get_run_dir(run_id)
+    normalized_csv = run_dir / "normalized.csv"
+
+    if not normalized_csv.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile data not found"
+        )
+
+    # Simple hash-based duplicate detection
+    key_counts = {}
+    duplicate_groups_data = {}
+    row_num = 0
+    total_rows = 0
+
+    with open(normalized_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=metadata.delimiter)
+
+        for row in reader:
+            row_num += 1
+            total_rows += 1
+
+            # Build key value from confirmed columns
+            key_parts = []
+            has_null = False
+            for col in confirmed_keys:
+                value = row.get(col, '')
+                if not value:
+                    has_null = True
+                    break
+                key_parts.append(value)
+
+            if has_null:
+                continue  # Skip rows with null keys
+
+            key_value = '|'.join(key_parts)
+
+            if key_value not in key_counts:
+                key_counts[key_value] = 0
+                duplicate_groups_data[key_value] = []
+
+            key_counts[key_value] += 1
+            duplicate_groups_data[key_value].append(row_num)
+
+    # Find duplicates (keys that appear more than once)
+    duplicate_groups = []
+    total_duplicate_rows = 0
+    duplicate_count = 0
+
+    for key_value, count in key_counts.items():
+        if count > 1:
+            duplicate_count += 1
+            total_duplicate_rows += (count - 1)  # Don't count the first occurrence
+
+            duplicate_groups.append(DuplicateGroup(
+                key_value=key_value,
+                count=count,
+                row_numbers=duplicate_groups_data[key_value]
+            ))
+
+    # Sort duplicate groups by count descending (most frequent first)
+    duplicate_groups.sort(key=lambda g: g.count, reverse=True)
+
+    # Calculate duplicate percentage
+    duplicate_percentage = (total_duplicate_rows / total_rows * 100.0) if total_rows > 0 else 0.0
+
+    # Store results in metadata
+    duplicate_results = {
+        "confirmed_keys": confirmed_keys,
+        "has_duplicates": duplicate_count > 0,
+        "duplicate_count": duplicate_count,
+        "total_duplicate_rows": total_duplicate_rows,
+        "duplicate_percentage": duplicate_percentage,
+        "top_duplicate_groups": [
+            {
+                "key_value": g.key_value,
+                "count": g.count,
+                "row_numbers": g.row_numbers[:10]  # Store first 10 row numbers
+            }
+            for g in duplicate_groups[:10]  # Store top 10 groups
+        ]
+    }
+
+    # Save duplicate results to metadata
+    metadata_dict = metadata.to_dict()
+    metadata_dict["duplicate_detection"] = duplicate_results
+
+    # Save updated metadata
+    with open(workspace.get_metadata_path(run_id), 'w') as f:
+        json.dump(metadata_dict, f, indent=2)
+
+    return DuplicateDetectionResponse(
+        run_id=run_id,
+        confirmed_keys=confirmed_keys,
+        has_duplicates=duplicate_count > 0,
+        duplicate_count=duplicate_count,
+        total_duplicate_rows=total_duplicate_rows,
+        duplicate_percentage=duplicate_percentage,
+        duplicate_groups=duplicate_groups[:10]  # Return top 10 groups
+    )
