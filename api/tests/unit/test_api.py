@@ -7,7 +7,7 @@ Tests all run lifecycle endpoints with proper fixtures and mocking.
 import gzip
 import json
 from datetime import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 

@@ -8,6 +8,7 @@ This module provides algorithms to:
 """
 
 import hashlib
+import os
 import sqlite3
 import tempfile
 from dataclasses import dataclass, field
@@ -230,7 +231,8 @@ class DuplicateDetector:
         self,
         use_sqlite: bool = False,
         cleanup: bool = True,
-        max_examples: int = 10
+        max_examples: int = 10,
+        commit_batch_size: int = 1000
     ):
         """
         Initialize duplicate detector.
@@ -239,10 +241,13 @@ class DuplicateDetector:
             use_sqlite: Use SQLite for storage (efficient for large datasets)
             cleanup: Automatically clean up temporary SQLite files
             max_examples: Maximum number of duplicate examples to return
+            commit_batch_size: Number of rows between SQLite commits (default 1000)
         """
         self.use_sqlite = use_sqlite
         self.cleanup_on_exit = cleanup
         self.max_examples = max_examples
+        self.commit_batch_size = commit_batch_size
+        self._insert_count = 0
         self._temp_db_path: Optional[Path] = None
         self._connection: Optional[sqlite3.Connection] = None
 
@@ -282,12 +287,12 @@ class DuplicateDetector:
                 value = row.get(col)
                 if value is None or value == "":
                     has_null = True
-                    null_key_count += 1
                     break
                 key_values.append(str(value))
 
             # Skip rows with null keys
             if has_null:
+                null_key_count += 1
                 continue
 
             # Create hash/key
@@ -307,6 +312,8 @@ class DuplicateDetector:
 
         # Get results
         if self.use_sqlite:
+            # Commit any remaining batched inserts before reading results
+            self._connection.commit()
             key_counts = self._get_duplicate_counts_sqlite()
             duplicate_examples = self._get_duplicate_examples_sqlite()
 
@@ -363,6 +370,7 @@ class DuplicateDetector:
 
         # Create temporary database file
         fd, temp_path = tempfile.mkstemp(suffix='.db', prefix='duplicates_')
+        os.close(fd)  # Close file descriptor to prevent resource leak
         self._temp_db_path = Path(temp_path)
 
         # Connect to database
@@ -409,7 +417,10 @@ class DuplicateDetector:
             DO UPDATE SET cnt = cnt + 1
         """, (key_hash, example_row))
 
-        self._connection.commit()
+        # Batched commits for performance
+        self._insert_count += 1
+        if self._insert_count % self.commit_batch_size == 0:
+            self._connection.commit()
 
     def _get_duplicate_counts_sqlite(self) -> Dict[str, int]:
         """
@@ -468,6 +479,7 @@ class DuplicateDetector:
             try:
                 self._temp_db_path.unlink()
             except Exception:
+                # Ignore errors if temp file already deleted
                 pass
             finally:
                 self._temp_db_path = None
