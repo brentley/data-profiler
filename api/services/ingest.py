@@ -4,9 +4,11 @@ UTF-8 validation and ingest services.
 This module provides streaming UTF-8 validation for uploaded files.
 """
 
+import csv
 from dataclasses import dataclass
 from enum import Enum
-from typing import BinaryIO, Optional
+from io import StringIO, TextIOWrapper
+from typing import BinaryIO, Optional, Iterator, List
 
 
 class LineEndingStyle(Enum):
@@ -410,3 +412,301 @@ class CRLFDetector:
         normalized = normalized.replace(b'\r', b'\n')       # CR to LF
 
         return normalized
+
+
+@dataclass
+class ParserConfig:
+    """Configuration for CSV parser."""
+    delimiter: str = '|'
+    quoting: bool = True
+    has_header: bool = True
+    continue_on_error: bool = False
+
+
+@dataclass
+class ParserResult:
+    """Result of header parsing."""
+    success: bool
+    headers: List[str]
+    column_count: int
+    error: Optional[str] = None
+
+
+class ParserError(Exception):
+    """
+    CSV parser error.
+
+    Can be catastrophic (must stop processing) or non-catastrophic (can continue).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: str,
+        is_catastrophic: bool = False,
+        line_number: Optional[int] = None
+    ):
+        """
+        Initialize parser error.
+
+        Args:
+            message: Error message
+            code: Error code (e.g., E_JAGGED_ROW, E_HEADER_MISSING)
+            is_catastrophic: Whether this error should stop processing
+            line_number: Line number where error occurred (if applicable)
+        """
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.is_catastrophic = is_catastrophic
+        self.line_number = line_number
+
+    def __str__(self) -> str:
+        """String representation of error."""
+        parts = [self.message]
+        if self.line_number is not None:
+            parts.append(f"(line {self.line_number})")
+        return " ".join(parts)
+
+
+class CSVParser:
+    """
+    Stream-based CSV parser with constant column count enforcement.
+
+    Parses CSV files with configurable delimiters and quoting rules.
+    Enforces that all rows have the same number of columns as the header.
+    """
+
+    def __init__(
+        self,
+        stream,
+        config: ParserConfig
+    ):
+        """
+        Initialize CSV parser.
+
+        Args:
+            stream: Text stream (StringIO or TextIOWrapper) to parse
+            config: Parser configuration
+        """
+        self.stream = stream
+        self.config = config
+        self.headers: List[str] = []
+        self.column_count: int = 0
+        self.line_number: int = 0
+        self.errors: List[ParserError] = []
+
+        # Configure CSV reader based on quoting setting
+        if config.quoting:
+            self.quoting = csv.QUOTE_MINIMAL
+        else:
+            self.quoting = csv.QUOTE_NONE
+
+    def parse_header(self) -> ParserResult:
+        """
+        Parse and validate the CSV header.
+
+        Returns:
+            ParserResult with header information
+
+        Raises:
+            ParserError: If header is missing or file is empty (catastrophic)
+        """
+        # Reset stream to beginning
+        self.stream.seek(0)
+
+        # Create CSV reader
+        reader = csv.reader(
+            self.stream,
+            delimiter=self.config.delimiter,
+            quotechar='"',
+            quoting=self.quoting,
+            skipinitialspace=False,
+            strict=False  # We'll handle errors ourselves
+        )
+
+        try:
+            # Read first row as header
+            self.headers = next(reader)
+            self.line_number = 1
+        except StopIteration:
+            # Empty file
+            raise ParserError(
+                "File is empty or header is missing",
+                code="E_HEADER_MISSING",
+                is_catastrophic=True
+            )
+        except csv.Error as e:
+            # CSV parsing error in header
+            raise ParserError(
+                f"Error parsing header: {str(e)}",
+                code="E_HEADER_MISSING",
+                is_catastrophic=True
+            )
+
+        # Check if we have a header
+        if not self.config.has_header:
+            raise ParserError(
+                "Header is required but has_header is False",
+                code="E_HEADER_MISSING",
+                is_catastrophic=True
+            )
+
+        # Check if header is empty
+        if not self.headers or all(h == '' for h in self.headers):
+            raise ParserError(
+                "Header row is empty",
+                code="E_HEADER_MISSING",
+                is_catastrophic=True
+            )
+
+        self.column_count = len(self.headers)
+
+        return ParserResult(
+            success=True,
+            headers=self.headers,
+            column_count=self.column_count
+        )
+
+    def parse_rows(self) -> Iterator[List[str]]:
+        """
+        Parse data rows from the CSV file.
+
+        Yields rows as lists of strings. Enforces constant column count.
+
+        Yields:
+            List[str]: Row data
+
+        Raises:
+            ParserError: If row has inconsistent column count (catastrophic)
+        """
+        if not self.headers:
+            raise ParserError(
+                "Must call parse_header() before parse_rows()",
+                code="E_HEADER_MISSING",
+                is_catastrophic=True
+            )
+
+        # Create CSV reader at current position (after header)
+        if self.config.quoting:
+            reader = csv.reader(
+                self.stream,
+                delimiter=self.config.delimiter,
+                quotechar='"',
+                quoting=self.quoting,
+                skipinitialspace=False,
+                strict=True  # Strict mode to catch quote errors
+            )
+        else:
+            reader = csv.reader(
+                self.stream,
+                delimiter=self.config.delimiter,
+                quoting=csv.QUOTE_NONE,
+                skipinitialspace=False,
+                strict=False
+            )
+
+        row_number = 0  # Track data row number (0-indexed after header)
+        while True:
+            try:
+                row = next(reader)
+                row_number += 1
+                # Line number in file = row number + 1 (for header)
+                file_line = row_number + 1
+
+                # Strip trailing empty fields if they exceed column count
+                # This handles cases like "a|b|c|" which creates ['a','b','c','']
+                while len(row) > self.column_count and row[-1] == '':
+                    row = row[:-1]
+
+                # Check column count (catastrophic if wrong)
+                if len(row) != self.column_count:
+                    # If we have exactly 1 extra column and quoting is enabled, likely unquoted delimiter
+                    # If we have many extra columns, it's just jagged
+                    if len(row) == self.column_count + 1 and self.config.quoting:
+                        error = ParserError(
+                            f"Row has {len(row)} columns but expected {self.column_count} - possible unquoted delimiter",
+                            code="E_UNQUOTED_DELIM",
+                            is_catastrophic=False,  # Non-catastrophic for unquoted delimiters
+                            line_number=row_number
+                        )
+                    else:
+                        error = ParserError(
+                            f"Row has {len(row)} columns but expected {self.column_count}",
+                            code="E_JAGGED_ROW",
+                            is_catastrophic=True,
+                            line_number=row_number
+                        )
+
+                    if self.config.continue_on_error:
+                        self.errors.append(error)
+                        continue
+                    else:
+                        raise error
+
+                yield row
+
+            except StopIteration:
+                # End of file
+                break
+
+            except csv.Error as e:
+                row_number += 1  # Increment for the errored row
+                # CSV module detected a quote error
+                error_msg = str(e).lower()
+                if 'quote' in error_msg or 'delimiter' in error_msg:
+                    error = ParserError(
+                        f"CSV quoting or delimiter error: {str(e)}",
+                        code="E_QUOTE_RULE",
+                        is_catastrophic=False,
+                        line_number=row_number
+                    )
+                else:
+                    error = ParserError(
+                        f"CSV parsing error: {str(e)}",
+                        code="E_QUOTE_RULE",
+                        is_catastrophic=False,
+                        line_number=row_number
+                    )
+
+                if self.config.continue_on_error:
+                    self.errors.append(error)
+                    continue
+                else:
+                    raise error
+
+    def _validate_quoting(self, row: List[str]) -> None:
+        """
+        Validate quoting rules for a row.
+
+        Args:
+            row: Row to validate
+
+        Raises:
+            ParserError: If quoting rules are violated (non-catastrophic)
+        """
+        # Note: The csv module handles most quoting validation automatically.
+        # We'll detect issues by checking for parsing problems.
+        # More sophisticated validation could be added here if needed.
+        pass
+
+    def get_errors(self) -> List[ParserError]:
+        """
+        Get accumulated non-catastrophic errors.
+
+        Returns:
+            List of ParserError objects
+        """
+        return self.errors
+
+    def get_error_rollup(self) -> dict:
+        """
+        Get error counts rolled up by error code.
+
+        Returns:
+            Dictionary mapping error codes to counts
+        """
+        rollup = {}
+        for error in self.errors:
+            rollup[error.code] = rollup.get(error.code, 0) + 1
+        return rollup
