@@ -31,6 +31,7 @@ class RunMetadata:
     progress_pct: float = 0.0
     warnings: List[Dict] = None
     errors: List[Dict] = None
+    column_profiles: Optional[Dict[str, Dict]] = None
 
     def __post_init__(self):
         """Initialize lists if None."""
@@ -38,6 +39,8 @@ class RunMetadata:
             self.warnings = []
         if self.errors is None:
             self.errors = []
+        if self.column_profiles is None:
+            self.column_profiles = {}
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -278,6 +281,21 @@ class WorkspaceManager:
             # Add new warning
             metadata.warnings.append(warning_dict)
 
+        self.save_metadata(metadata)
+
+    def save_column_profiles(self, run_id: UUID, column_profiles: Dict[str, Dict]) -> None:
+        """
+        Save column profile results to run metadata.
+
+        Args:
+            run_id: Run UUID
+            column_profiles: Dictionary mapping column names to profile results
+        """
+        metadata = self.load_metadata(run_id)
+        if not metadata:
+            raise ValueError(f"Run {run_id} not found")
+
+        metadata.column_profiles = column_profiles
         self.save_metadata(metadata)
 
     def save_uploaded_file(self, run_id: UUID, file_data: bytes, filename: str) -> Path:
