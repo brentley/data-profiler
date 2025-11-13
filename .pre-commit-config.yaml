@@ -1,0 +1,95 @@
+# VQ8 Data Profiler - Pre-commit Hooks
+# Ensures code quality and security before commits
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']  # Allow docker-compose anchors
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Secret detection
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+            \.env\.example|
+            package-lock\.json|
+            .*\.lock
+          )$
+
+  # Python formatting
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3.11
+        files: '^api/.*\.py$'
+
+  # Python linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: '^api/.*\.py$'
+
+  # Python security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.6
+    hooks:
+      - id: bandit
+        args: ['-c', 'api/pyproject.toml']
+        files: '^api/.*\.py$'
+        exclude: '^api/tests/.*\.py$'
+
+  # JavaScript/TypeScript formatting
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        files: '^web/.*\.(js|jsx|ts|tsx|json|css|scss|md)$'
+        exclude: '^web/(dist|build|node_modules)/.*$'
+
+  # Prevent committing sensitive data patterns
+  - repo: local
+    hooks:
+      - id: check-data-files
+        name: Check for data files
+        entry: bash -c 'if git diff --cached --name-only | grep -E "\.(csv|txt|xlsx|sqlite|db|gz)$"; then echo "ERROR: Data files detected. Never commit data files!"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      - id: check-env-files
+        name: Check for .env files
+        entry: bash -c 'if git diff --cached --name-only | grep -E "^\.env$"; then echo "ERROR: .env file detected. Never commit environment files!"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      - id: check-data-directory
+        name: Check for /data directory
+        entry: bash -c 'if git diff --cached --name-only | grep -E "^data/"; then echo "ERROR: /data directory detected. Never commit PHI data!"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]

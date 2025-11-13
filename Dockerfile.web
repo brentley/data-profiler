@@ -1,0 +1,71 @@
+# Multi-stage build for VQ8 Data Profiler Web UI
+# Node 20 on Alpine base
+
+# Build stage
+FROM node:20-alpine AS builder
+
+# Build arguments for versioning
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+
+WORKDIR /build
+
+# Copy package files
+COPY web/package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Copy source code
+COPY web/ .
+
+# Build the application with version info
+ENV VITE_GIT_COMMIT=${GIT_COMMIT} \
+    VITE_BUILD_DATE=${BUILD_DATE} \
+    VITE_VERSION=${VERSION}
+
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+# Build arguments (passed through from build stage)
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+
+# Set environment variables for metadata
+ENV GIT_COMMIT=${GIT_COMMIT} \
+    BUILD_DATE=${BUILD_DATE} \
+    VERSION=${VERSION} \
+    NODE_ENV=production
+
+WORKDIR /app
+
+# Install production dependencies only
+COPY web/package*.json ./
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Copy built application from builder
+COPY --from=builder /build/dist ./dist
+COPY --from=builder /build/vite.config.ts ./
+
+# Create non-root user for security
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+# Health check (assumes vite preview serves on 4173)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:4173/ || exit 1
+
+# Expose port
+EXPOSE 4173
+
+# Run with vite preview
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]

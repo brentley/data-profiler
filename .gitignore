@@ -1,0 +1,119 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment and secrets
+.env
+.env.local
+*.key
+*.pem
+*.crt
+credentials.json
+secrets/
+
+# Data files (PHI expected - never commit!)
+/data/
+uploads/
+*.csv
+*.txt
+*.gz
+!example_*.csv
+!sample_*.csv
+*.xlsx
+!*_deidentified.xlsx
+
+# SQLite databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Outputs and artifacts
+outputs/
+reports/
+/api/htmlcov/
+/api/coverage.xml
+/api/.coverage
+
+# Logs
+logs/
+*.log
+audit.log
+audit.log.json
+
+# Docker
+.dockerignore
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Node (for web frontend)
+node_modules/
+.pnp
+.pnp.js
+/web/dist/
+/web/build/
+/web/.next/
+/web/out/
+
+# Testing
+.pytest_cache/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

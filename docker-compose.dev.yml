@@ -1,0 +1,68 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        VERSION: ${VERSION:-dev}
+    container_name: vq8-profiler-api-dev
+    environment:
+      WORK_DIR: ${WORK_DIR:-/data/work}
+      OUTPUT_DIR: ${OUTPUT_DIR:-/data/outputs}
+      MAX_SPILL_GB: ${MAX_SPILL_GB:-50}
+      GAUSSIAN_TEST: ${GAUSSIAN_TEST:-dagostino}
+      GIT_COMMIT: ${GIT_COMMIT:-dev}
+      BUILD_DATE: ${BUILD_DATE:-unknown}
+      VERSION: ${VERSION:-dev}
+      API_TITLE: "VQ8 Data Profiler API (Dev)"
+      API_VERSION: "1.0.0-dev"
+      CORS_ORIGINS: "*"
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      # Enable auto-reload
+      RELOAD: "true"
+    volumes:
+      # Mount source code for hot reload
+      - ./api:/app
+      - ./data:/data
+    ports:
+      - "8000:8000"
+    networks:
+      - profiler-network
+    restart: unless-stopped
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        VERSION: ${VERSION:-dev}
+    container_name: vq8-profiler-web-dev
+    environment:
+      VITE_GIT_COMMIT: ${GIT_COMMIT:-dev}
+      VITE_BUILD_DATE: ${BUILD_DATE:-unknown}
+      VITE_VERSION: ${VERSION:-dev}
+      VITE_API_URL: http://localhost:8000
+      NODE_ENV: development
+    volumes:
+      # Mount source code for hot reload
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "4173:4173"
+      - "5173:5173"  # Vite dev server
+    networks:
+      - profiler-network
+    restart: unless-stopped
+    depends_on:
+      - api
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+networks:
+  profiler-network:
+    driver: bridge
