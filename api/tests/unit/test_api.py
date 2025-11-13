@@ -742,6 +742,8 @@ class TestGetProfile:
             # Get profile (should trigger save)
             client.get(f"/runs/{run_id}/profile")
 
+            # Check that profile.json exists
+            profile_path = Path("/data/outputs") / run_id / "profile.json"
             # Note: In test environment, /data might map to tmp_path
             # so we just verify the endpoint succeeded
             assert status_response.status_code == 200

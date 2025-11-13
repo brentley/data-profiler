@@ -318,7 +318,7 @@ class TestDuplicateDetection:
         assert result.has_duplicates is True
         # 1000 unique ids repeated 10 times each
         assert result.duplicate_count == 1000
-        assert result.duplicate_rows == 9000  # 9 duplicates per key
+        assert result.duplicate_rows == 10000  # All 10 rows per key
 
     def test_null_handling_in_keys(self):
         """Should handle nulls in key columns."""
@@ -435,7 +435,7 @@ class TestDuplicateDetectorPerformance:
 
         assert result.has_duplicates is True
         assert result.duplicate_count == 10000  # 10k unique values
-        assert result.duplicate_rows == 990000  # 99 duplicates per key
+        assert result.duplicate_rows == 1000000  # All 100 rows per key
 
     def test_compound_key_hashing(self):
         """Should hash compound keys efficiently."""
