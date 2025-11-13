@@ -5,7 +5,16 @@ This module provides streaming UTF-8 validation for uploaded files.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import BinaryIO, Optional
+
+
+class LineEndingStyle(Enum):
+    """Line ending styles."""
+    CRLF = "CRLF"  # Windows: \r\n
+    LF = "LF"      # Unix/Linux/Mac: \n
+    CR = "CR"      # Legacy Mac: \r
+    UNKNOWN = "UNKNOWN"  # No line endings detected
 
 
 @dataclass
@@ -15,6 +24,30 @@ class ValidationResult:
     error: Optional[str] = None
     byte_offset: Optional[int] = None
     has_bom: bool = False
+
+
+@dataclass
+class LineEndingResult:
+    """Result of line ending detection."""
+    style: LineEndingStyle
+    original_style: str
+    mixed: bool = False
+    sample_count: int = 0
+    crlf_count: int = 0
+    lf_count: int = 0
+    cr_count: int = 0
+
+    def to_audit_dict(self) -> dict:
+        """Convert to dictionary for audit trail."""
+        return {
+            'original_style': self.original_style,
+            'normalized_to': 'LF',
+            'mixed': self.mixed,
+            'sample_count': self.sample_count,
+            'crlf_count': self.crlf_count,
+            'lf_count': self.lf_count,
+            'cr_count': self.cr_count
+        }
 
 
 class UTF8Validator:
@@ -216,3 +249,164 @@ class UTF8Validator:
                 )
 
         return None
+
+
+class CRLFDetector:
+    """
+    Stream-based CRLF/line ending detector and normalizer.
+
+    Detects line ending patterns (CRLF, LF, CR) and normalizes to LF for internal processing.
+    Records original format for audit trail.
+    """
+
+    def __init__(
+        self,
+        stream: BinaryIO,
+        chunk_size: int = 8192,
+        sample_size: Optional[int] = None,
+        quoted_aware: bool = False
+    ):
+        """
+        Initialize detector.
+
+        Args:
+            stream: Binary stream to analyze
+            chunk_size: Size of chunks to read (default 8KB)
+            sample_size: Maximum number of line endings to sample (None = all)
+            quoted_aware: Whether to be aware of quoted fields in CSV (experimental)
+        """
+        self.stream = stream
+        self.chunk_size = chunk_size
+        self.sample_size = sample_size
+        self.quoted_aware = quoted_aware
+        self._content: Optional[bytes] = None
+
+    def detect(self) -> LineEndingResult:
+        """
+        Detect line ending style in the stream.
+
+        Returns:
+            LineEndingResult with detected style and statistics
+        """
+        self.stream.seek(0)
+
+        crlf_count = 0
+        lf_count = 0
+        cr_count = 0
+        in_quotes = False
+        prev_byte = None
+        sample_count = 0
+
+        while True:
+            chunk = self.stream.read(self.chunk_size)
+            if not chunk:
+                break
+
+            for i, byte in enumerate(chunk):
+                # Simple quote tracking for CSV (experimental)
+                if self.quoted_aware and byte == ord(b'"'):
+                    in_quotes = not in_quotes
+
+                # Skip line endings inside quotes if quote-aware
+                if self.quoted_aware and in_quotes:
+                    prev_byte = byte
+                    continue
+
+                # Detect line endings
+                if byte == ord(b'\n'):
+                    if prev_byte == ord(b'\r'):
+                        # This is part of CRLF, already counted
+                        pass
+                    else:
+                        # Standalone LF
+                        lf_count += 1
+                        sample_count += 1
+                elif byte == ord(b'\r'):
+                    # Look ahead to see if it's CRLF or CR
+                    next_byte = chunk[i + 1] if i + 1 < len(chunk) else None
+                    if next_byte is None and i + 1 == len(chunk):
+                        # Need to peek at next chunk
+                        pos = self.stream.tell()
+                        peek = self.stream.read(1)
+                        self.stream.seek(pos)
+                        next_byte = peek[0] if peek else None
+
+                    if next_byte == ord(b'\n'):
+                        crlf_count += 1
+                        sample_count += 1
+                    else:
+                        cr_count += 1
+                        sample_count += 1
+
+                prev_byte = byte
+
+                # Stop if we've sampled enough
+                if self.sample_size and sample_count >= self.sample_size:
+                    break
+
+            if self.sample_size and sample_count >= self.sample_size:
+                break
+
+        # Determine predominant style
+        if sample_count == 0:
+            style = LineEndingStyle.UNKNOWN
+            original_style = "UNKNOWN"
+        elif crlf_count > lf_count and crlf_count > cr_count:
+            style = LineEndingStyle.CRLF
+            original_style = "CRLF"
+        elif lf_count > crlf_count and lf_count > cr_count:
+            style = LineEndingStyle.LF
+            original_style = "LF"
+        elif cr_count > crlf_count and cr_count > lf_count:
+            style = LineEndingStyle.CR
+            original_style = "CR"
+        elif crlf_count > 0 or lf_count > 0 or cr_count > 0:
+            # Mixed, pick the most common
+            if crlf_count >= lf_count and crlf_count >= cr_count:
+                style = LineEndingStyle.CRLF
+                original_style = "CRLF"
+            elif lf_count >= crlf_count and lf_count >= cr_count:
+                style = LineEndingStyle.LF
+                original_style = "LF"
+            else:
+                style = LineEndingStyle.CR
+                original_style = "CR"
+        else:
+            style = LineEndingStyle.UNKNOWN
+            original_style = "UNKNOWN"
+
+        # Check if mixed
+        endings_present = sum([
+            1 if crlf_count > 0 else 0,
+            1 if lf_count > 0 else 0,
+            1 if cr_count > 0 else 0
+        ])
+        mixed = endings_present > 1
+
+        return LineEndingResult(
+            style=style,
+            original_style=original_style,
+            mixed=mixed,
+            sample_count=sample_count,
+            crlf_count=crlf_count,
+            lf_count=lf_count,
+            cr_count=cr_count
+        )
+
+    def normalize(self) -> bytes:
+        """
+        Normalize all line endings to LF.
+
+        Returns:
+            Content with all line endings normalized to LF
+        """
+        # Read entire content if not already cached
+        if self._content is None:
+            self.stream.seek(0)
+            self._content = self.stream.read()
+
+        # Normalize: CRLF -> LF, then CR -> LF
+        normalized = self._content.replace(b'\r\n', b'\n')  # CRLF to LF
+        normalized = normalized.replace(b'\r', b'\n')       # CR to LF
+
+        return normalized
