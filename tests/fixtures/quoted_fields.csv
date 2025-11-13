@@ -1,0 +1,8 @@
+ID|Name|Description|Tags
+1|"Smith, John"|"Professional with 10+ years experience"|"dev,senior,python"
+2|"Doe, Jane"|"Uses | delimiter in description"|"qa,automation"
+3|Bob Johnson|Simple description without quotes|testing
+4|"O'Brien, Pat"|"Quote has ""doubled"" quotes inside"|"devops,kubernetes"
+5|Alice|"Multi-line
+description
+here"|cloud

@@ -1,0 +1,8 @@
+ID|FirstName|LastName|Email|Status
+1|Alice|Smith|alice@example.com|ACTIVE
+2|Bob|Jones|bob@example.com|ACTIVE
+1|Alice|Smith|alice@example.com|ACTIVE
+3|Charlie|Brown|charlie@example.com|INACTIVE
+2|Bob|Jones|bob@example.com|PENDING
+4|Diana|Prince|diana@example.com|ACTIVE
+3|Charlie|Brown|charlie@example.com|INACTIVE

@@ -63,7 +63,11 @@ secrets/
 /data/
 uploads/
 *.csv
+!tests/fixtures/*.csv
 *.txt
+!*.md
+!requirements*.txt
+!LICENSE.txt
 *.gz
 !example_*.csv
 !sample_*.csv
@@ -117,3 +121,6 @@ playwright/.cache/
 tmp/
 temp/
 *.tmp
+
+# Old Profile directory (legacy scripts)
+Profile/

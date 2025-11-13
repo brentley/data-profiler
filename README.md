@@ -297,12 +297,42 @@ Where:
 3. Duplicate detector runs (hash-based)
 4. Results include duplicate examples
 
+## Documentation
+
+Comprehensive documentation is available in the `/docs` directory:
+
+### Getting Started
+- **[Quickstart Guide](docs/QUICKSTART.md)** - Get up and running in 5 minutes
+- **[User Guide](docs/USER_GUIDE.md)** - Complete user documentation with examples
+
+### Technical Documentation
+- **[Architecture](docs/ARCHITECTURE.md)** - System design, components, and data flow
+- **[API Reference](docs/API.md)** - Complete REST API documentation with examples
+- **[Developer Guide](docs/DEVELOPER_GUIDE.md)** - Development setup, contributing, and extending
+
+### Operations
+- **[Operations Guide](docs/OPERATIONS.md)** - Deployment, monitoring, and maintenance
+- **[Error Codes](docs/ERROR_CODES.md)** - Complete error code reference with solutions
+
+### Quick Links
+- **Interactive API Docs**: http://localhost:8000/docs (when running)
+- **OpenAPI Spec**: http://localhost:8000/openapi.json
+- **Health Check**: http://localhost:8000/healthz
+
 ## Development Roadmap
 
 ### Phase 1: Test Suite ✓ COMPLETE
 - [x] 8 test files with 150+ test cases
 - [x] Project configuration (pyproject.toml, requirements.txt)
 - [x] Environment setup (.env.example, .gitignore)
+- [x] **Documentation Suite ✓ NEW**
+  - [x] Architecture documentation
+  - [x] API reference with examples
+  - [x] Comprehensive user guide
+  - [x] Developer guide
+  - [x] Operations and deployment guide
+  - [x] Error code reference
+  - [x] Quickstart guide
 
 ### Phase 2: Core Implementation (NEXT)
 - [ ] UTF-8 validator (services/ingest.py)

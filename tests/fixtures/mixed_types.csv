@@ -1,0 +1,8 @@
+ID|PureNumeric|PureString|MixedColumn|CodeColumn
+1|100|Alice|100|ACTIVE
+2|200|Bob|text value|INACTIVE
+3|300|Charlie|150.50|ACTIVE
+4|400|Diana|more text|PENDING
+5|500|Eve|999|ACTIVE
+6|600|Frank|random string|INACTIVE
+7|700|Grace|42.0|ACTIVE
