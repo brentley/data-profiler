@@ -4,12 +4,13 @@ Run lifecycle endpoints.
 This module implements the FastAPI routes for profiling run management.
 """
 
+import csv
 import gzip
 import tempfile
 from datetime import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -32,6 +33,14 @@ from ..services.ingest import (
     ValidationResult,
 )
 from ..services.types import TypeInferrer
+from ..services.profile import (
+    NumericProfiler,
+    StringProfiler,
+    DateProfiler,
+    MoneyProfiler,
+    CodeProfiler,
+)
+from ..services.distincts import DistinctCounter
 from ..storage.workspace import WorkspaceManager
 
 # Workspace manager (initialized lazily)
@@ -192,6 +201,157 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
         )
 
 
+async def profile_columns(
+    run_id: UUID,
+    temp_csv: Path,
+    type_result,
+    delimiter: str,
+    workspace: WorkspaceManager
+) -> Dict[str, Dict]:
+    """
+    Profile all columns in the CSV file using appropriate profilers.
+
+    This performs streaming profiling with:
+    1. Type-specific profilers (Numeric, String, Date, Money, Code)
+    2. DistinctCounter for all columns
+    3. Progress tracking (60-100%)
+
+    Args:
+        run_id: Run UUID
+        temp_csv: Path to normalized CSV file
+        type_result: TypeInferenceResult with detected types
+        delimiter: CSV delimiter
+        workspace: WorkspaceManager instance
+
+    Returns:
+        Dictionary mapping column names to profile results
+    """
+    column_profiles = {}
+    columns = list(type_result.columns.keys())
+    total_columns = len(columns)
+
+    # Create profilers for each column based on type
+    profilers = {}
+    distinct_counters = {}
+
+    for col_name, col_info in type_result.columns.items():
+        inferred_type = col_info.inferred_type
+
+        # Create type-specific profiler
+        if inferred_type == "numeric":
+            profilers[col_name] = NumericProfiler(num_bins=10)
+        elif inferred_type == "money":
+            profilers[col_name] = MoneyProfiler()
+        elif inferred_type == "date":
+            profilers[col_name] = DateProfiler()
+        elif inferred_type == "code":
+            profilers[col_name] = CodeProfiler(top_n=10)
+        elif inferred_type in ["alpha", "varchar", "mixed", "unknown"]:
+            profilers[col_name] = StringProfiler(top_n=10)
+        else:
+            profilers[col_name] = StringProfiler(top_n=10)
+
+        # Create distinct counter for all columns
+        distinct_counters[col_name] = DistinctCounter()
+
+    # Stream through CSV and update profilers
+    with open(temp_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+
+        for row in reader:
+            for col_name in columns:
+                value = row.get(col_name, '')
+                profilers[col_name].update(value)
+
+    # Finalize profilers and collect results
+    for idx, col_name in enumerate(columns):
+        # Update progress (60% to 100%)
+        progress = 60.0 + ((idx + 1) / total_columns) * 40.0
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=progress)
+
+        # Finalize profiler
+        profiler = profilers[col_name]
+        stats = profiler.finalize()
+
+        # Get distinct count from DistinctCounter
+        distinct_result = distinct_counters[col_name].count_distincts(
+            temp_csv,
+            col_name,
+            delimiter=delimiter
+        )
+
+        # Get column type info
+        col_info = type_result.columns[col_name]
+
+        # Build profile result based on type
+        profile = {
+            "name": col_name,
+            "type": col_info.inferred_type,
+            "null_count": stats.null_count if hasattr(stats, 'null_count') else 0,
+            "distinct_count": distinct_result.distinct_count,
+            "distinct_pct": distinct_result.cardinality_ratio * 100.0,
+        }
+
+        # Add type-specific stats
+        if col_info.inferred_type == "numeric":
+            profile.update({
+                "min": stats.min_value,
+                "max": stats.max_value,
+                "mean": stats.mean,
+                "median": stats.median,
+                "stddev": stats.stddev,
+                "quantiles": stats.quantiles,
+                "histogram": stats.histogram,
+                "gaussian_pvalue": stats.gaussian_pvalue,
+            })
+        elif col_info.inferred_type == "money":
+            profile.update({
+                "valid_count": stats.valid_count,
+                "invalid_count": stats.invalid_count,
+                "min_value": stats.min_value,
+                "max_value": stats.max_value,
+                "two_decimal_ok": stats.two_decimal_ok,
+                "disallowed_symbols_found": stats.disallowed_symbols_found,
+            })
+        elif col_info.inferred_type == "date":
+            profile.update({
+                "valid_count": stats.valid_count,
+                "invalid_count": stats.invalid_count,
+                "detected_format": stats.detected_format,
+                "format_consistent": stats.format_consistent,
+                "min_date": stats.min_date,
+                "max_date": stats.max_date,
+                "span_days": stats.span_days,
+            })
+        elif col_info.inferred_type == "code":
+            profile.update({
+                "cardinality_ratio": stats.cardinality_ratio,
+                "min_length": stats.min_length,
+                "max_length": stats.max_length,
+                "avg_length": stats.avg_length,
+                "top_values": stats.top_values[:10],
+            })
+        elif col_info.inferred_type in ["alpha", "varchar", "mixed", "unknown"]:
+            profile.update({
+                "min_length": stats.min_length,
+                "max_length": stats.max_length,
+                "avg_length": stats.avg_length,
+                "top_values": stats.top_values[:10],
+                "has_non_ascii": stats.has_non_ascii,
+                "character_types": list(stats.character_types),
+            })
+
+        # Add top values from distinct counter
+        profile["top_values"] = distinct_result.get_top_n(10)
+
+        column_profiles[col_name] = profile
+
+        # Cleanup distinct counter temp files
+        distinct_counters[col_name].cleanup()
+
+    return column_profiles
+
+
 async def process_file(
     run_id: UUID,
     file_content: bytes,
@@ -312,8 +472,8 @@ async def process_file(
                     ErrorDetail(code=error_code, message=f"Parser error: {error_code}", count=count)
                 )
 
-        # Step 4: Type Inference (70% progress)
-        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=60.0)
+        # Step 4: Type Inference (60% progress)
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=50.0)
 
         # Save normalized content to temp file for type inference
         run_dir = workspace.get_run_dir(run_id)
@@ -346,7 +506,21 @@ async def process_file(
                     )
                 )
 
-        # Step 5: Complete (100% progress)
+        # Step 5: Profile Each Column (50-100% progress)
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=60.0)
+
+        column_profiles = await profile_columns(
+            run_id=run_id,
+            temp_csv=temp_csv,
+            type_result=type_result,
+            delimiter=delimiter,
+            workspace=workspace
+        )
+
+        # Store profile results in workspace metadata
+        workspace.save_column_profiles(run_id, column_profiles)
+
+        # Step 6: Complete (100% progress)
         workspace.update_state(run_id, RunState.COMPLETED, progress_pct=100.0)
 
     except ParserError as e:
@@ -408,5 +582,6 @@ async def get_run_status(run_id: UUID) -> RunStatus:
         started_at=metadata.started_at,
         completed_at=metadata.completed_at,
         warnings=warnings,
-        errors=errors
+        errors=errors,
+        column_profiles=metadata.column_profiles
     )
