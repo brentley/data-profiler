@@ -10,7 +10,7 @@ Tests the CRLF detector that must:
 
 import pytest
 from io import BytesIO
-from services.ingest import LineEndingDetector
+from services.ingest import CRLFDetector
 
 
 class TestLineEndingDetector:
@@ -20,7 +20,7 @@ class TestLineEndingDetector:
         """Should detect CRLF line endings."""
         data = b"line1\r\nline2\r\nline3\r\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "CRLF"
@@ -32,7 +32,7 @@ class TestLineEndingDetector:
         """Should detect LF line endings."""
         data = b"line1\nline2\nline3\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "LF"
@@ -44,7 +44,7 @@ class TestLineEndingDetector:
         """Should detect CR line endings (old Mac style)."""
         data = b"line1\rline2\rline3\r"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "CR"
@@ -56,7 +56,7 @@ class TestLineEndingDetector:
         # Mostly CRLF with one LF
         data = b"line1\r\nline2\r\nline3\nline4\r\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "CRLF"
@@ -69,7 +69,7 @@ class TestLineEndingDetector:
         # Mostly LF with one CRLF
         data = b"line1\nline2\nline3\r\nline4\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "LF"
@@ -79,7 +79,7 @@ class TestLineEndingDetector:
         """Should normalize CRLF to LF internally."""
         data = b"line1\r\nline2\r\nline3\r\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         normalized = detector.normalize()
         assert b"\r\n" not in normalized
@@ -89,7 +89,7 @@ class TestLineEndingDetector:
         """Should preserve LF line endings."""
         data = b"line1\nline2\nline3\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         normalized = detector.normalize()
         assert normalized == data
@@ -98,7 +98,7 @@ class TestLineEndingDetector:
         """Should normalize CR to LF internally."""
         data = b"line1\rline2\rline3\r"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         normalized = detector.normalize()
         assert b"\r" not in normalized
@@ -107,7 +107,7 @@ class TestLineEndingDetector:
     def test_empty_file(self):
         """Should handle empty files."""
         stream = BytesIO(b"")
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "NONE"
@@ -116,7 +116,7 @@ class TestLineEndingDetector:
         """Should handle files with no line endings."""
         data = b"single line with no ending"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.detected_style == "NONE"
@@ -126,7 +126,7 @@ class TestLineEndingDetector:
         # Large file with CRLF
         data = b"line\r\n" * 10000
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream, chunk_size=1024)
+        detector = CRLFDetector(stream, chunk_size=1024)
 
         result = detector.detect()
         assert result.detected_style == "CRLF"
@@ -136,7 +136,7 @@ class TestLineEndingDetector:
         """Should preserve metadata about original file."""
         data = b"line1\r\nline2\nline3\r\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         # Original stats preserved
@@ -149,7 +149,7 @@ class TestLineEndingDetector:
         # This will be handled by CSV parser, but detector should see all
         data = b'field1,"field\r\nwith\r\nlines",field3\r\n'
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         # Detector sees all line endings (parser will handle quoting)
@@ -159,7 +159,7 @@ class TestLineEndingDetector:
         """Should generate warning for mixed line endings."""
         data = b"line1\r\nline2\nline3\r\n"
         stream = BytesIO(data)
-        detector = LineEndingDetector(stream)
+        detector = CRLFDetector(stream)
 
         result = detector.detect()
         assert result.has_mixed is True
