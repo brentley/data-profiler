@@ -444,6 +444,44 @@ class TestRootEndpoint:
         assert "version" in data
         assert "docs" in data
         assert data["version"] == "1.0.0"
+<<<<<<< HEAD
+
+
+class TestCSVSanitization:
+    """Tests for CSV injection prevention."""
+
+    def test_sanitize_csv_value_normal(self):
+        """Test sanitizing normal values."""
+        from api.routers.runs import sanitize_csv_value
+
+        assert sanitize_csv_value("hello") == "hello"
+        assert sanitize_csv_value("123") == "123"
+        assert sanitize_csv_value("test value") == "test value"
+        assert sanitize_csv_value("") == ""
+        assert sanitize_csv_value(None) == ""
+
+    def test_sanitize_csv_value_dangerous(self):
+        """Test sanitizing values with dangerous prefixes."""
+        from api.routers.runs import sanitize_csv_value
+
+        # Test dangerous prefixes
+        assert sanitize_csv_value("=SUM(A1:A10)") == "'=SUM(A1:A10)"
+        assert sanitize_csv_value("+cmd") == "'+cmd"
+        assert sanitize_csv_value("-2+3") == "'-2+3"
+        assert sanitize_csv_value("@SUM(1+1)") == "'@SUM(1+1)"
+
+    def test_sanitize_csv_value_types(self):
+        """Test sanitizing different data types."""
+        from api.routers.runs import sanitize_csv_value
+
+        # Numbers
+        assert sanitize_csv_value(123) == "123"
+        assert sanitize_csv_value(45.67) == "45.67"
+        assert sanitize_csv_value(-10) == "'-10"  # Starts with -
+
+        # Booleans
+        assert sanitize_csv_value(True) == "True"
+        assert sanitize_csv_value(False) == "False"
 
 
 class TestMetricsCSVExport:
@@ -824,3 +862,5 @@ class TestGetProfile:
             assert "date" in columns_by_name
             date_col = columns_by_name["date"]
             assert date_col["type"] in ["date", "numeric"]
+=======
+>>>>>>> origin/main

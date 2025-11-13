@@ -772,8 +772,9 @@ async def get_metrics_csv(run_id: UUID) -> StreamingResponse:
     - Null percentage and distinct count
     - Type-specific metrics (min/max, quantiles, etc.)
 
-    The CSV is stored in /data/outputs/{run_id}/metrics.csv and returned with
-    proper Content-Type headers for download.
+    The CSV is stored in the run directory as metrics.csv and returned with
+    proper Content-Type headers for download. All values are sanitized to
+    prevent CSV injection attacks (values starting with =, +, -, @ are escaped).
 
     Args:
         run_id: Run UUID
