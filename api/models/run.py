@@ -171,7 +171,6 @@ class ColumnProfileResponse(BaseModel):
     name: str = Field(..., description="Column name")
     type: str = Field(..., description="Inferred type")
     null_count: int = Field(..., description="Number of null values")
-    null_pct: Optional[float] = Field(None, description="Percentage of null values (0-100)")
     distinct_count: int = Field(..., description="Number of distinct values")
     distinct_pct: float = Field(..., description="Percentage of distinct values")
 
