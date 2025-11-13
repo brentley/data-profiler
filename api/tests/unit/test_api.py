@@ -7,7 +7,7 @@ Tests all run lifecycle endpoints with proper fixtures and mocking.
 import gzip
 import json
 from datetime import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -742,8 +742,6 @@ class TestGetProfile:
             # Get profile (should trigger save)
             client.get(f"/runs/{run_id}/profile")
 
-            # Check that profile.json exists
-            profile_path = Path("/data/outputs") / run_id / "profile.json"
             # Note: In test environment, /data might map to tmp_path
             # so we just verify the endpoint succeeded
             assert status_response.status_code == 200
