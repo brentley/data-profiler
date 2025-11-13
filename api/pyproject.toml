@@ -60,7 +60,11 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "catastrophic: marks tests for catastrophic error scenarios",
+    "e2e: marks tests as end-to-end tests",
+    "performance: marks tests as performance tests",
 ]
+pythonpath = ["."]
 
 [tool.black]
 line-length = 100

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Generator
 import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -174,3 +175,44 @@ def sample_csv_no_header(temp_dir: Path) -> Path:
         encoding="utf-8"
     )
     return csv_path
+
+
+@pytest.fixture
+def api_client():
+    """Create test client for API endpoints."""
+    from api.app import app
+    from api.routers.runs import set_workspace
+    from api.storage.workspace import WorkspaceManager
+
+    # Create test workspace in temp directory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = WorkspaceManager(Path(tmpdir))
+        set_workspace(workspace)
+
+        client = TestClient(app)
+        yield client
+
+
+@pytest.fixture
+def temp_workspace(tmp_path):
+    """Create temporary workspace directory for E2E tests."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    return workspace
+
+
+@pytest.fixture
+def sample_csv_simple():
+    """Return simple CSV content for E2E tests."""
+    return """ID|Name|Email|Status|Score
+1|Alice|alice@example.com|Active|95.5
+2|Bob|bob@example.com|Active|87.2
+3|Charlie|charlie@example.com|Inactive|92.8
+4|Diana|diana@example.com|Active|88.1
+5|Eve|eve@example.com|Active|91.0"""
+
+
+@pytest.fixture
+def sample_invalid_utf8():
+    """Return invalid UTF-8 bytes for testing."""
+    return b"ID|Name\n1|Alice\n2|\xFF\xFEInvalid\n"
