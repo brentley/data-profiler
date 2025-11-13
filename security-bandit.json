@@ -1,0 +1,396 @@
+{
+  "errors": [
+    {
+      "filename": "api/DOCSTRING_TEMPLATES.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/app.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/models/run.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/routers/runs.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/audit.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/distincts.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/errors.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/ingest.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/keys.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/profile.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/services/types.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/storage/workspace.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/test_profile_endpoint.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/conftest.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/integration/__init__.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/integration/test_errors.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/integration/test_full_pipeline.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/performance/test_large_files.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_audit.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_candidate_keys.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_csv_parser.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_date.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_distincts.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_line_endings.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_money.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/test_type_inference.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_api.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_code_profiler.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_crlf.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_money_profiler.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_parser.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_profiling_integration.py",
+      "reason": "exception while scanning file"
+    },
+    {
+      "filename": "api/tests/unit/test_utf8.py",
+      "reason": "exception while scanning file"
+    }
+  ],
+  "generated_at": "2025-11-13T21:31:11Z",
+  "metrics": {
+    "_totals": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 10144,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/DOCSTRING_TEMPLATES.py": {
+      "loc": 410,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/app.py": {
+      "loc": 95,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/models/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/models/run.py": {
+      "loc": 208,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/routers/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/routers/runs.py": {
+      "loc": 1035,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/audit.py": {
+      "loc": 437,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/distincts.py": {
+      "loc": 297,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/errors.py": {
+      "loc": 207,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/ingest.py": {
+      "loc": 546,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/keys.py": {
+      "loc": 359,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/profile.py": {
+      "loc": 865,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/services/types.py": {
+      "loc": 366,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/storage/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/storage/workspace.py": {
+      "loc": 271,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/test_profile_endpoint.py": {
+      "loc": 13,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/__init__.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 0,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/conftest.py": {
+      "loc": 391,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/integration/__init__.py": {
+      "loc": 1,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/integration/test_errors.py": {
+      "loc": 386,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/integration/test_full_pipeline.py": {
+      "loc": 373,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/performance/test_large_files.py": {
+      "loc": 355,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_audit.py": {
+      "loc": 278,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_candidate_keys.py": {
+      "loc": 378,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_csv_parser.py": {
+      "loc": 207,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_date.py": {
+      "loc": 241,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_distincts.py": {
+      "loc": 248,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_line_endings.py": {
+      "loc": 129,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_money.py": {
+      "loc": 187,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/test_type_inference.py": {
+      "loc": 274,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_api.py": {
+      "loc": 567,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_code_profiler.py": {
+      "loc": 209,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_crlf.py": {
+      "loc": 174,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_money_profiler.py": {
+      "loc": 151,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_parser.py": {
+      "loc": 284,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_profiling_integration.py": {
+      "loc": 98,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "api/tests/unit/test_utf8.py": {
+      "loc": 104,
+      "nosec": 0,
+      "skipped_tests": 0
+    }
+  },
+  "results": []
+}
