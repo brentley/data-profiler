@@ -14,7 +14,7 @@ A comprehensive security audit was performed on the VQ8 Data Profiler API codeba
 **Overall Security Posture:** GOOD (with limitations)
 **Critical Issues Found:** 0
 **High Issues Found:** 0
-**Medium Issues Found:** 1 (INCOMPLETE AUTOMATED SCANNING)
+**Medium Issues Found:** 1 (PARTIAL COVERAGE)
 **Low Issues Found:** 1 (ACCEPTED)
 **Informational Items:** 2
 
@@ -49,7 +49,7 @@ A comprehensive security audit was performed on the VQ8 Data Profiler API codeba
 - `api/app.py` (FastAPI application setup)
 - `api/routers/runs.py` (API endpoints - 1,035 LOC)
 
-**Service Layer (100% failure):**
+**Service Layer (all 7 files failed to scan):**
 - `api/services/profile.py` (865 LOC)
 - `api/services/ingest.py` (546 LOC)
 - `api/services/audit.py` (437 LOC)
@@ -68,18 +68,18 @@ A comprehensive security audit was performed on the VQ8 Data Profiler API codeba
 - All 22 test files in `api/tests/` directory failed to scan
 
 **Impact:**
-- Only 32 `__init__.py` files (empty or minimal code) were successfully scanned
-- **Zero lines of actual application logic were verified by automated security scanning**
+- Only 7 `__init__.py` files (empty or minimal code, 1 LOC total) were successfully scanned
+- **Zero lines of production application logic were verified by automated security scanning (only initialization files with 1 LOC total were scanned)**
 - Manual code review was performed as fallback, but lacks the systematic coverage of automated tools
 
-**Root Cause:** Likely Python version incompatibility or import resolution issues between Bandit's AST parser and the codebase's Python 3.11+ syntax features.
+**Probable Cause:** Likely Python version incompatibility or import resolution issues between Bandit's AST parser and the codebase's Python 3.11+ syntax features.
 
 **Mitigation Status:** Manual code review completed with focus on OWASP Top 10. However, automated scanning should be fixed to ensure ongoing security monitoring.
 
 **Recommendation:**
 1. Investigate Bandit version compatibility (current: 1.7.6)
 2. Try alternative SAST tools: `semgrep`, `pylint --security`, `pyre-check`
-3. Add `--exclude` patterns to skip problematic files temporarily
+3. (Short-term workaround only) Add `--exclude` patterns to skip problematic files temporarily **while investigating and resolving the root cause**. All files should be scanned once the issue is fixed.
 4. Consider upgrading Bandit to latest version or using containerized scanning
 
 ---
@@ -206,8 +206,8 @@ CORS configured for localhost-only access with explicit origins:
 
 ### Bandit Static Analysis ⚠️ PARTIAL SCAN
 ```
-Files attempted: 65 Python files
-Files successfully scanned: 32 Python files (4,901 LOC)
+Files attempted: 65 Python files (10,144 total LOC in codebase)
+Files successfully scanned: 7 Python files (1 LOC - only __init__.py files)
 Files failed to scan: 33 Python files (syntax errors or import issues)
 Severity Breakdown (from successfully scanned files):
   HIGH:     0
@@ -215,7 +215,7 @@ Severity Breakdown (from successfully scanned files):
   LOW:      0
 ```
 
-**Result:** ZERO security issues detected **in the 32 files that were successfully scanned**
+**Result:** ZERO security issues detected **in the 7 files that were successfully scanned**
 
 **IMPORTANT LIMITATION:** 33 files failed to scan due to exceptions during Bandit analysis. These files include:
 - Core application files: `api/app.py`, `api/routers/runs.py`
@@ -225,7 +225,7 @@ Severity Breakdown (from successfully scanned files):
 - Test files: All test files in `api/tests/` directory
 - Template file: `api/DOCSTRING_TEMPLATES.py`
 
-**Coverage Assessment:** The scan only covered initialization files (`__init__.py`) which typically contain no security-relevant code. All critical application logic files failed to scan, meaning **the security posture of the actual codebase remains unverified by automated tools**.
+**Coverage Assessment:** The scan successfully covered 7 Python files totaling 1 line of code, consisting entirely of initialization files (`__init__.py`). All critical application logic files failed to scan, meaning **the security posture of the actual codebase remains largely unverified by automated tools**.
 
 ### pip-audit Dependency Scan ✅ PASS
 ```
