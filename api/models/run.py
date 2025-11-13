@@ -6,7 +6,7 @@ This module defines request and response models for the profiling run API.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -92,7 +92,6 @@ class RunStatus(BaseModel):
     completed_at: Optional[datetime] = Field(None, description="Processing completion timestamp")
     warnings: List[ErrorDetail] = Field(default_factory=list, description="Non-critical warnings")
     errors: List[ErrorDetail] = Field(default_factory=list, description="Errors encountered")
-    column_profiles: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="Column profile results")
 
     class Config:
         json_schema_extra = {

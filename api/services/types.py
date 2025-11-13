@@ -531,23 +531,3 @@ class TypeInferrer:
                 violations += 1
 
         return violations
-
-
-# ============================================================================
-# Validators for Money and Date (from profile module)
-# Import these here for test compatibility
-# ============================================================================
-
-# Re-export from profile module to maintain backward compatibility with tests
-def _lazy_import_validators():
-    """Lazy import to avoid circular dependencies."""
-    try:
-        from services.profile import MoneyValidator, DateValidator
-        return MoneyValidator, DateValidator
-    except ImportError:
-        # If profile module not available, return None
-        return None, None
-
-
-# Make validators available when imported
-MoneyValidator, DateValidator = _lazy_import_validators()
