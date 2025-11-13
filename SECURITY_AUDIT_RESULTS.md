@@ -11,14 +11,14 @@
 
 A comprehensive security audit was performed on the VQ8 Data Profiler API codebase. The audit included automated scanning with industry-standard tools (Bandit, pip-audit) and manual code review focusing on OWASP Top 10 vulnerabilities.
 
-**Overall Security Posture:** EXCELLENT
+**Overall Security Posture:** GOOD (with limitations)
 **Critical Issues Found:** 0
 **High Issues Found:** 0
-**Medium Issues Found:** 0
+**Medium Issues Found:** 1 (PARTIAL COVERAGE)
 **Low Issues Found:** 1 (ACCEPTED)
 **Informational Items:** 2
 
-**Result:** All HIGH and CRITICAL risks have been eliminated. The codebase demonstrates strong security practices suitable for local deployment.
+**Result:** Manual code review found no critical security issues. However, automated scanning via Bandit was incomplete - 33 of 65 Python files failed to scan due to exceptions. This includes all core application files (`api/app.py`, `api/routers/runs.py`, all service files). While manual review found strong security practices, the lack of automated verification reduces confidence in the overall security posture.
 
 ---
 
@@ -35,6 +35,52 @@ A comprehensive security audit was performed on the VQ8 Data Profiler API codeba
 - Storage layer (`api/storage/`)
 - Models and configuration (`api/models/`, `api/app.py`)
 - **Total: 4,901 lines of Python code analyzed**
+
+---
+
+## Known Limitations
+
+### M-1: Incomplete Automated Security Scanning (MEDIUM)
+**Severity:** MEDIUM | **OWASP:** N/A - Tooling limitation
+
+**Issue:** Bandit static analysis tool failed to scan 33 out of 65 Python files (51% failure rate) due to exceptions during analysis. The failures affected **all critical application files**, including:
+
+**Core Application:**
+- `api/app.py` (FastAPI application setup)
+- `api/routers/runs.py` (API endpoints - 1,035 LOC)
+
+**Service Layer (all 7 files failed to scan):**
+- `api/services/profile.py` (865 LOC)
+- `api/services/ingest.py` (546 LOC)
+- `api/services/audit.py` (437 LOC)
+- `api/services/distincts.py` (297 LOC)
+- `api/services/errors.py` (207 LOC)
+- `api/services/keys.py` (359 LOC)
+- `api/services/types.py` (366 LOC)
+
+**Storage Layer:**
+- `api/storage/workspace.py` (271 LOC)
+
+**Models:**
+- `api/models/run.py` (208 LOC)
+
+**Test Suite (100% failure):**
+- All 22 test files in `api/tests/` directory failed to scan
+
+**Impact:**
+- Only 7 `__init__.py` files (empty or minimal code, 1 LOC total) were successfully scanned
+- **Zero lines of production application logic were verified by automated security scanning (only initialization files with 1 LOC total were scanned)**
+- Manual code review was performed as fallback, but lacks the systematic coverage of automated tools
+
+**Probable Cause:** Likely Python version incompatibility or import resolution issues between Bandit's AST parser and the codebase's Python 3.11+ syntax features.
+
+**Mitigation Status:** Manual code review completed with focus on OWASP Top 10. However, automated scanning should be fixed to ensure ongoing security monitoring.
+
+**Recommendation:**
+1. Investigate Bandit version compatibility (current: 1.7.6)
+2. Try alternative SAST tools: `semgrep`, `pylint --security`, `pyre-check`
+3. (Short-term workaround only) Add `--exclude` patterns to skip problematic files temporarily **while investigating and resolving the root cause**. All files should be scanned once the issue is fixed.
+4. Consider upgrading Bandit to latest version or using containerized scanning
 
 ---
 
@@ -158,16 +204,28 @@ CORS configured for localhost-only access with explicit origins:
 
 ## Automated Scan Results
 
-### Bandit Static Analysis ✅ PASS
+### Bandit Static Analysis ⚠️ PARTIAL SCAN
 ```
-Files scanned: 32 Python files (4,901 LOC)
-Severity Breakdown:
+Files attempted: 65 Python files (10,144 total LOC in codebase)
+Files successfully scanned: 7 Python files (1 LOC - only __init__.py files)
+Files failed to scan: 33 Python files (syntax errors or import issues)
+Severity Breakdown (from successfully scanned files):
   HIGH:     0
   MEDIUM:   0
   LOW:      0
 ```
 
-**Result:** ZERO security issues detected
+**Result:** ZERO security issues detected **in the 7 files that were successfully scanned**
+
+**IMPORTANT LIMITATION:** 33 files failed to scan due to exceptions during Bandit analysis. These files include:
+- Core application files: `api/app.py`, `api/routers/runs.py`
+- Service layer: `api/services/profile.py`, `api/services/ingest.py`, `api/services/audit.py`, `api/services/distincts.py`, `api/services/errors.py`, `api/services/keys.py`, `api/services/types.py`
+- Storage layer: `api/storage/workspace.py`
+- Models: `api/models/run.py`
+- Test files: All test files in `api/tests/` directory
+- Template file: `api/DOCSTRING_TEMPLATES.py`
+
+**Coverage Assessment:** The scan successfully covered 7 Python files totaling 1 line of code, consisting entirely of initialization files (`__init__.py`). All critical application logic files failed to scan, meaning **the security posture of the actual codebase remains largely unverified by automated tools**.
 
 ### pip-audit Dependency Scan ✅ PASS
 ```
@@ -295,12 +353,11 @@ semgrep==1.55.2           # SAST scanning
 
 ## Conclusion
 
-The VQ8 Data Profiler API demonstrates **exceptional security practices** for a local deployment application:
+The VQ8 Data Profiler API demonstrates **good security practices** for a local deployment application, with some limitations in automated verification:
 
 ### Strengths
-- **Zero automated security findings** (Bandit, pip-audit)
-- **Zero dependency vulnerabilities** (108 packages scanned)
-- **Strong input validation** across multiple layers
+- **Zero dependency vulnerabilities** (108 packages scanned via pip-audit)
+- **Strong input validation** across multiple layers (verified via manual review)
 - **CSV injection protection** implemented correctly
 - **Path traversal protection** via UUID validation
 - **No information leakage** in error responses
@@ -308,15 +365,21 @@ The VQ8 Data Profiler API demonstrates **exceptional security practices** for a 
 - **Proper error handling** with audit logging
 - **Security-aware code patterns** throughout
 
+### Limitations
+- **Incomplete automated security scanning** - Bandit failed to scan 33/65 files (51% failure rate)
+- **Zero lines of production code verified** by automated SAST tools
+- **Manual review only** for all critical application files
+- **No systematic vulnerability detection** in service layer, routers, or storage
+
 ### Risk Assessment
-**For Local Deployment:** LOW RISK
-**For Production Deployment:** MEDIUM RISK (requires auth, rate limiting, TLS)
+**For Local Deployment:** LOW-MEDIUM RISK
+**For Production Deployment:** HIGH RISK (requires auth, rate limiting, TLS, AND working automated security scanning)
 
 ### Sign-Off
-All **CRITICAL, HIGH, and MEDIUM** severity issues have been addressed or accepted as appropriate for the deployment model. The codebase is **APPROVED** for local deployment.
+Manual code review found no critical security issues. However, the failure of automated scanning tools to analyze the actual codebase significantly reduces confidence in the security posture. The codebase is **CONDITIONALLY APPROVED** for local deployment only, with the recommendation to fix automated scanning before any production deployment.
 
-**Audit Status:** ✅ PASSED
-**Security Grade:** A (Excellent)
+**Audit Status:** ⚠️ PASSED WITH LIMITATIONS
+**Security Grade:** B (Good, but incomplete verification)
 
 ---
 
