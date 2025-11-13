@@ -1,5 +1,16 @@
-ID|ValidAmount|DollarSign|Commas|Parentheses|WrongDecimals|NoDecimals
-1|100.00|$100.00|1,000.00|(50.00)|100.5|1000
-2|250.50|$250.50|25,000.00|(100.00)|99.999|2500
-3|99.99|99.99$|1,234,567.89|(1.23)|0.1|100
-4|0.50|$0.50|500.00|(0.50)|123.4567|50
+ID|Amount|Description|Valid
+1|123.45|Valid money with 2 decimals|YES
+2|0.00|Zero amount valid|YES
+3|999999.99|Large valid amount|YES
+4|$1234.56|Has dollar sign|NO
+5|1,234.56|Has comma separator|NO
+6|(45.67)|Parentheses for negative|NO
+7|123.1|Only 1 decimal place|NO
+8|123|No decimal places|NO
+9|123.456|Too many decimal places|NO
+10|-500.00|Negative with proper format|YES
+11|100.5|Single decimal|NO
+12|50|Integer without decimals|NO
+13|.99|Missing leading zero|NO
+14|1234567.89|Valid large amount|YES
+15|  45.67  |Leading/trailing spaces|MAYBE

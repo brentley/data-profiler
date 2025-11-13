@@ -1,8 +1,14 @@
-ID|Name|Description|Tags
-1|"Smith, John"|"Professional with 10+ years experience"|"dev,senior,python"
-2|"Doe, Jane"|"Uses | delimiter in description"|"qa,automation"
-3|Bob Johnson|Simple description without quotes|testing
-4|"O'Brien, Pat"|"Quote has ""doubled"" quotes inside"|"devops,kubernetes"
-5|Alice|"Multi-line
-description
-here"|cloud
+ID|Name|Description|Address|Notes
+1|John Doe|Simple field|123 Main St|Regular data
+2|Jane "The Boss" Smith|Nickname with quotes|456 Oak Ave|Embedded "quotes" here
+3|Bob Johnson|"Field with | pipe"|789 Pine Rd|Delimiter in quotes
+4|Alice Brown|"Multi
+line
+field"|321 Elm St|CRLF within quotes
+5|Charlie Davis|"Quote escape: ""nested"" quotes"|654 Maple Dr|Doubled quotes
+6|Eve Wilson|Normal|"Address with | delimiter"|Mixed quoted/unquoted
+7|Frank Miller|"Both | and
+newline"|987 Cedar Ln|"Multiple ""edge"" cases"
+8|Grace Lee|"""Starts with quote"""|111 Birch Way|Quote handling
+9|Henry Taylor|Field with spaces|222 Spruce Ct|"Trailing spaces   "
+10|Ivy Martinez|"Comma, in field"|333 Ash Blvd|CSV confusion test
