@@ -153,6 +153,7 @@ class HealthResponse(BaseModel):
                 "version": "1.0.0"
             }
         }
+<<<<<<< HEAD
 
 
 class FileMetadata(BaseModel):
@@ -231,3 +232,5 @@ class ProfileResponse(BaseModel):
     warnings: List[ErrorDetail] = Field(default_factory=list, description="Warnings encountered")
     columns: List[ColumnProfileResponse] = Field(default_factory=list, description="Column profiles")
     candidate_keys: List[CandidateKey] = Field(default_factory=list, description="Suggested candidate keys")
+=======
+>>>>>>> origin/main
