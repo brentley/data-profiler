@@ -444,6 +444,7 @@ class TestRootEndpoint:
         assert "version" in data
         assert "docs" in data
         assert data["version"] == "1.0.0"
+<<<<<<< HEAD
 
 
 class TestMetricsCSVExport:
@@ -824,3 +825,5 @@ class TestGetProfile:
             assert "date" in columns_by_name
             date_col = columns_by_name["date"]
             assert date_col["type"] in ["date", "numeric"]
+=======
+>>>>>>> origin/main
