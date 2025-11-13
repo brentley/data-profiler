@@ -80,7 +80,7 @@ export interface DateStats {
 
 export interface ColumnProfile {
   name: string;
-  inferred_type: ColumnType;
+  type: ColumnType;
   null_pct: number;
   distinct_count: number;
   top_values: TopValue[];
