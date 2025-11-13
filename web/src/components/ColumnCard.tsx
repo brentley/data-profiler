@@ -41,8 +41,8 @@ export function ColumnCard({ column, index }: ColumnCardProps) {
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
               Column {index + 1}
             </span>
-            <span className={`badge ${getTypeColor(column.inferred_type)}`}>
-              {column.inferred_type}
+            <span className={`badge ${getTypeColor(column.type)}`}>
+              {column.type}
             </span>
           </div>
           <h3 className="text-lg font-semibold font-mono truncate" title={column.name}>
