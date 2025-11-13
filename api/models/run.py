@@ -153,3 +153,81 @@ class HealthResponse(BaseModel):
                 "version": "1.0.0"
             }
         }
+
+
+class FileMetadata(BaseModel):
+    """File metadata in profile response."""
+
+    rows: int = Field(..., description="Total number of rows")
+    columns: int = Field(..., description="Total number of columns")
+    delimiter: str = Field(..., description="Delimiter used")
+    crlf_detected: bool = Field(..., description="Whether CRLF line endings were detected")
+    header: List[str] = Field(..., description="Column headers")
+
+
+class ColumnProfileResponse(BaseModel):
+    """Column profile in profile response."""
+
+    name: str = Field(..., description="Column name")
+    type: str = Field(..., description="Inferred type")
+    null_count: int = Field(..., description="Number of null values")
+    distinct_count: int = Field(..., description="Number of distinct values")
+    distinct_pct: float = Field(..., description="Percentage of distinct values")
+
+    # Optional fields based on type
+    min: Optional[float] = None
+    max: Optional[float] = None
+    mean: Optional[float] = None
+    median: Optional[float] = None
+    stddev: Optional[float] = None
+    quantiles: Optional[Dict[str, float]] = None
+    histogram: Optional[Dict[str, Any]] = None
+    gaussian_pvalue: Optional[float] = None
+
+    # String fields
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    avg_length: Optional[float] = None
+    has_non_ascii: Optional[bool] = None
+    character_types: Optional[List[str]] = None
+
+    # Date fields
+    valid_count: Optional[int] = None
+    invalid_count: Optional[int] = None
+    detected_format: Optional[str] = None
+    format_consistent: Optional[bool] = None
+    min_date: Optional[str] = None
+    max_date: Optional[str] = None
+    span_days: Optional[int] = None
+
+    # Money fields
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    two_decimal_ok: Optional[bool] = None
+    disallowed_symbols_found: Optional[bool] = None
+
+    # Code fields
+    cardinality_ratio: Optional[float] = None
+
+    # Top values
+    top_values: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class CandidateKey(BaseModel):
+    """Candidate key suggestion."""
+
+    columns: List[str] = Field(..., description="Column names in key")
+    distinct_ratio: float = Field(..., description="Ratio of distinct values")
+    null_ratio_sum: float = Field(..., description="Sum of null ratios")
+    score: float = Field(..., description="Key quality score")
+
+
+class ProfileResponse(BaseModel):
+    """Complete profile response."""
+
+    run_id: UUID = Field(..., description="Run identifier")
+    file: FileMetadata = Field(..., description="File metadata")
+    errors: List[ErrorDetail] = Field(default_factory=list, description="Errors encountered")
+    warnings: List[ErrorDetail] = Field(default_factory=list, description="Warnings encountered")
+    columns: List[ColumnProfileResponse] = Field(default_factory=list, description="Column profiles")
+    candidate_keys: List[CandidateKey] = Field(default_factory=list, description="Suggested candidate keys")

@@ -5,6 +5,7 @@ This module implements the FastAPI routes for profiling run management.
 """
 
 import csv
+import json
 import gzip
 import tempfile
 from datetime import datetime
@@ -14,11 +15,15 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..models.run import (
+    FileMetadata,
+    CandidateKey,
+    ColumnProfileResponse,
     ErrorDetail,
     FileUploadResponse,
+    ProfileResponse,
     RunCreate,
     RunResponse,
     RunState,
@@ -41,10 +46,12 @@ from ..services.profile import (
     CodeProfiler,
 )
 from ..services.distincts import DistinctCounter
+from ..services.audit import AuditLogger
 from ..storage.workspace import WorkspaceManager
 
 # Workspace manager (initialized lazily)
 _workspace: Optional[WorkspaceManager] = None
+_audit_logger: Optional[AuditLogger] = None
 
 
 def get_workspace() -> WorkspaceManager:
@@ -54,6 +61,15 @@ def get_workspace() -> WorkspaceManager:
         work_dir = Path("/data/work")
         _workspace = WorkspaceManager(work_dir)
     return _workspace
+
+
+def get_audit_logger() -> AuditLogger:
+    """Get or create audit logger."""
+    global _audit_logger
+    if _audit_logger is None:
+        output_dir = Path("/data/outputs")
+        _audit_logger = AuditLogger(output_dir)
+    return _audit_logger
 
 
 def set_workspace(workspace_manager: WorkspaceManager):
@@ -83,7 +99,17 @@ async def create_run(run_config: RunCreate) -> RunResponse:
     """
     try:
         workspace = get_workspace()
+        audit_logger = get_audit_logger()
+
         metadata = workspace.create_run(
+            delimiter=run_config.delimiter,
+            quoted=run_config.quoted,
+            expect_crlf=run_config.expect_crlf
+        )
+
+        # Log run creation
+        audit_logger.log_run_created(
+            run_id=metadata.run_id,
             delimiter=run_config.delimiter,
             quoted=run_config.quoted,
             expect_crlf=run_config.expect_crlf
@@ -173,6 +199,15 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
 
         # Save uploaded file
         workspace.save_uploaded_file(run_id, file_content, filename)
+
+        # Log file upload with hash and byte count
+        audit_logger = get_audit_logger()
+        audit_logger.log_file_uploaded(
+            run_id=run_id,
+            filename=filename,
+            file_data=file_content,
+            is_gzipped=is_gzipped
+        )
 
         # Update state to processing
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=0.0)
@@ -367,6 +402,7 @@ async def process_file(
     2. CRLF detection
     3. CSV parsing with header validation
     4. Type inference
+    5. Column profiling
 
     Args:
         run_id: Run UUID
@@ -378,8 +414,11 @@ async def process_file(
     Raises:
         HTTPException: If catastrophic errors occur
     """
+    audit_logger = get_audit_logger()
+
     try:
         # Step 1: UTF-8 Validation (10% progress)
+        audit_logger.log_validation_started(run_id)
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=10.0)
 
         stream = BytesIO(file_content)
@@ -397,6 +436,11 @@ async def process_file(
                     count=1
                 )
             )
+            audit_logger.log_run_failed(
+                run_id=run_id,
+                error_code="E_UTF8_INVALID",
+                error_message=validation_result.error or "Invalid UTF-8 encoding"
+            )
             return
 
         # Step 2: CRLF Detection (20% progress)
@@ -409,6 +453,16 @@ async def process_file(
         # Normalize line endings
         normalized_content = detector.normalize()
 
+        # Log validation completion with line ending counts
+        audit_logger.log_validation_completed(
+            run_id=run_id,
+            utf8_valid=True,
+            crlf_count=line_ending_result.crlf_count,
+            lf_count=line_ending_result.lf_count,
+            cr_count=line_ending_result.cr_count,
+            mixed_endings=line_ending_result.mixed
+        )
+
         # Record line ending info as warning if mixed
         if line_ending_result.mixed:
             workspace.add_warning(
@@ -419,8 +473,14 @@ async def process_file(
                     count=1
                 )
             )
+            audit_logger.log_warning(
+                run_id=run_id,
+                warning_code="W_LINE_ENDING",
+                count=1
+            )
 
         # Step 3: CSV Parsing (50% progress)
+        audit_logger.log_parsing_started(run_id)
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=30.0)
 
         # Create text stream from normalized content
@@ -446,6 +506,11 @@ async def process_file(
                 run_id,
                 ErrorDetail(code=e.code, message=e.message, count=1)
             )
+            audit_logger.log_run_failed(
+                run_id=run_id,
+                error_code=e.code,
+                error_message=e.message
+            )
             return
 
         # Count rows for progress tracking
@@ -466,13 +531,26 @@ async def process_file(
                     run_id,
                     ErrorDetail(code=error_code, message=f"Parser warning: {error_code}", count=count)
                 )
+                audit_logger.log_warning(run_id=run_id, warning_code=error_code, count=count)
             else:
                 workspace.add_error(
                     run_id,
                     ErrorDetail(code=error_code, message=f"Parser error: {error_code}", count=count)
                 )
+                audit_logger.log_error(run_id=run_id, error_code=error_code, count=count)
+
+        # Log parsing completion with counts (NO VALUES)
+        column_count = len(header_result.header) if header_result else 0
+        audit_logger.log_parsing_completed(
+            run_id=run_id,
+            row_count=row_count,
+            column_count=column_count,
+            header_names=header_result.header if header_result else [],
+            error_rollup=error_rollup
+        )
 
         # Step 4: Type Inference (60% progress)
+        audit_logger.log_type_inference_started(run_id)
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=50.0)
 
         # Save normalized content to temp file for type inference
@@ -485,8 +563,17 @@ async def process_file(
         inferrer = TypeInferrer(sample_size=None)  # Full inference
         type_result = inferrer.infer_column_types(temp_csv, delimiter=delimiter)
 
+        # Collect type inference results for audit log
+        column_types = {}
+        error_counts = {}
+        warning_counts = {}
+
         # Process type inference results
         for col_name, col_info in type_result.columns.items():
+            column_types[col_name] = col_info.inferred_type
+            error_counts[col_name] = col_info.error_count
+            warning_counts[col_name] = col_info.warning_count
+
             if col_info.error_count > 0:
                 workspace.add_error(
                     run_id,
@@ -496,6 +583,12 @@ async def process_file(
                         count=col_info.error_count
                     )
                 )
+                audit_logger.log_error(
+                    run_id=run_id,
+                    error_code=f"E_{col_info.inferred_type.upper()}_FORMAT",
+                    count=col_info.error_count
+                )
+
             if col_info.warning_count > 0:
                 workspace.add_warning(
                     run_id,
@@ -505,8 +598,22 @@ async def process_file(
                         count=col_info.warning_count
                     )
                 )
+                audit_logger.log_warning(
+                    run_id=run_id,
+                    warning_code=f"W_{col_info.inferred_type.upper()}_FORMAT",
+                    count=col_info.warning_count
+                )
+
+        # Log type inference completion (counts and types only, NO VALUES)
+        audit_logger.log_type_inference_completed(
+            run_id=run_id,
+            column_types=column_types,
+            error_counts=error_counts,
+            warning_counts=warning_counts
+        )
 
         # Step 5: Profile Each Column (50-100% progress)
+        audit_logger.log_profiling_started(run_id)
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=60.0)
 
         column_profiles = await profile_columns(
@@ -520,8 +627,38 @@ async def process_file(
         # Store profile results in workspace metadata
         workspace.save_column_profiles(run_id, column_profiles)
 
+        # Calculate aggregate statistics for audit log
+        total_null_count = sum(
+            profile.get('null_count', 0)
+            for profile in column_profiles.values()
+        )
+        total_distinct_count = sum(
+            profile.get('distinct_count', 0)
+            for profile in column_profiles.values()
+        )
+
+        # Log profiling completion with aggregate counts (NO VALUES)
+        audit_logger.log_profiling_completed(
+            run_id=run_id,
+            columns_profiled=len(column_profiles),
+            total_null_count=total_null_count,
+            total_distinct_count=total_distinct_count
+        )
+
         # Step 6: Complete (100% progress)
         workspace.update_state(run_id, RunState.COMPLETED, progress_pct=100.0)
+
+        # Load final metadata for audit log
+        metadata = workspace.load_metadata(run_id)
+        total_errors = sum(e.get('count', 0) for e in metadata.errors) if metadata else 0
+        total_warnings = sum(w.get('count', 0) for w in metadata.warnings) if metadata else 0
+
+        # Log run completion
+        audit_logger.log_run_completed(
+            run_id=run_id,
+            total_errors=total_errors,
+            total_warnings=total_warnings
+        )
 
     except ParserError as e:
         # Catastrophic parser error
@@ -530,6 +667,11 @@ async def process_file(
             run_id,
             ErrorDetail(code=e.code, message=e.message, count=1)
         )
+        audit_logger.log_run_failed(
+            run_id=run_id,
+            error_code=e.code,
+            error_message=e.message
+        )
     except Exception as e:
         # Unexpected error
         workspace.update_state(run_id, RunState.FAILED)
@@ -537,6 +679,12 @@ async def process_file(
             run_id,
             ErrorDetail(code="E_PROCESSING_FAILED", message=str(e), count=1)
         )
+        audit_logger.log_run_failed(
+            run_id=run_id,
+            error_code="E_PROCESSING_FAILED",
+            error_message=str(e)
+        )
+
 
 
 @router.get("/{run_id}/status", response_model=RunStatus)
@@ -585,3 +733,365 @@ async def get_run_status(run_id: UUID) -> RunStatus:
         errors=errors,
         column_profiles=metadata.column_profiles
     )
+
+
+def sanitize_csv_value(value) -> str:
+    """
+    Sanitize a value to prevent CSV injection attacks.
+
+    CSV injection occurs when cells starting with =, +, -, or @ are
+    interpreted as formulas by spreadsheet applications.
+
+    Args:
+        value: Value to sanitize (any type)
+
+    Returns:
+        Sanitized string value safe for CSV export
+    """
+    if value is None:
+        return ""
+
+    # Convert to string
+    str_value = str(value)
+
+    # Check if starts with dangerous characters
+    if str_value and str_value[0] in ('=', '+', '-', '@'):
+        # Prepend with single quote to prevent formula interpretation
+        return "'" + str_value
+
+    return str_value
+
+
+@router.get("/{run_id}/metrics.csv")
+async def get_metrics_csv(run_id: UUID) -> StreamingResponse:
+    """
+    Export column metrics as CSV.
+
+    Generates a CSV file with one row per column containing all profiling metrics:
+    - Column name and type
+    - Null percentage and distinct count
+    - Type-specific metrics (min/max, quantiles, etc.)
+
+    The CSV is stored in /data/outputs/{run_id}/metrics.csv and returned with
+    proper Content-Type headers for download.
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        StreamingResponse with CSV content
+
+    Raises:
+        HTTPException: If run not found or not completed
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    # Check if run is completed
+    if metadata.state != RunState.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Run {run_id} is not completed (state: {metadata.state})"
+        )
+
+    # Check if column profiles exist
+    if not metadata.column_profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No column profiles found for run {run_id}"
+        )
+
+    # Create outputs directory within the run directory
+    run_dir = workspace.get_run_dir(run_id)
+    csv_path = run_dir / "metrics.csv"
+
+    with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+
+        # Write header
+        headers = [
+            "column_name",
+            "type",
+            "null_count",
+            "distinct_count",
+            "distinct_pct",
+            "min_value",
+            "max_value",
+            "mean",
+            "median",
+            "stddev",
+            "min_length",
+            "max_length",
+            "avg_length",
+            "top_value_1",
+            "top_value_1_count",
+            "top_value_2",
+            "top_value_2_count",
+            "top_value_3",
+            "top_value_3_count",
+        ]
+        writer.writerow(headers)
+
+        # Write one row per column
+        for col_name, profile in metadata.column_profiles.items():
+            # Extract metrics with defaults
+            col_type = profile.get("type", "unknown")
+            null_count = profile.get("null_count", 0)
+            distinct_count = profile.get("distinct_count", 0)
+            distinct_pct = profile.get("distinct_pct", 0.0)
+
+            # Numeric metrics (for numeric/money types)
+            min_value = profile.get("min", profile.get("min_value", ""))
+            max_value = profile.get("max", profile.get("max_value", ""))
+            mean = profile.get("mean", "")
+            median = profile.get("median", "")
+            stddev = profile.get("stddev", "")
+
+            # String metrics (for string/code types)
+            min_length = profile.get("min_length", "")
+            max_length = profile.get("max_length", "")
+            avg_length = profile.get("avg_length", "")
+
+            # Top values (available for all types)
+            top_values = profile.get("top_values", [])
+            top_1_value = ""
+            top_1_count = ""
+            top_2_value = ""
+            top_2_count = ""
+            top_3_value = ""
+            top_3_count = ""
+
+            if len(top_values) > 0:
+                top_1_value = top_values[0].get("value", "")
+                top_1_count = top_values[0].get("count", "")
+            if len(top_values) > 1:
+                top_2_value = top_values[1].get("value", "")
+                top_2_count = top_values[1].get("count", "")
+            if len(top_values) > 2:
+                top_3_value = top_values[2].get("value", "")
+                top_3_count = top_values[2].get("count", "")
+
+            # Build row with CSV injection prevention
+            row = [
+                sanitize_csv_value(col_name),
+                sanitize_csv_value(col_type),
+                sanitize_csv_value(null_count),
+                sanitize_csv_value(distinct_count),
+                sanitize_csv_value(distinct_pct),
+                sanitize_csv_value(min_value),
+                sanitize_csv_value(max_value),
+                sanitize_csv_value(mean),
+                sanitize_csv_value(median),
+                sanitize_csv_value(stddev),
+                sanitize_csv_value(min_length),
+                sanitize_csv_value(max_length),
+                sanitize_csv_value(avg_length),
+                sanitize_csv_value(top_1_value),
+                sanitize_csv_value(top_1_count),
+                sanitize_csv_value(top_2_value),
+                sanitize_csv_value(top_2_count),
+                sanitize_csv_value(top_3_value),
+                sanitize_csv_value(top_3_count),
+            ]
+
+            writer.writerow(row)
+
+    # Read CSV content and return as streaming response
+    def iterfile():
+        with open(csv_path, 'rb') as f:
+            yield from f
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=metrics_{run_id}.csv"
+        }
+    )
+
+
+@router.get("/{run_id}/profile", response_model=ProfileResponse)
+async def get_profile(run_id: UUID) -> ProfileResponse:
+    """
+    Get the complete profiling results as JSON.
+
+    This endpoint returns the full profile with file metadata, column statistics,
+    errors, warnings, and candidate key suggestions. The profile is also saved
+    to /data/outputs/{run_id}/profile.json for download.
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        ProfileResponse with complete profiling results
+
+    Raises:
+        HTTPException: If run not found or processing not complete
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    # Check if processing is complete
+    if metadata.state not in [RunState.COMPLETED, RunState.FAILED]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Processing not complete yet (state: {metadata.state})"
+        )
+
+    # Check if we have column profiles
+    if not metadata.column_profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile data available"
+        )
+
+    # Read the normalized CSV to get row count and headers
+    run_dir = workspace.get_run_dir(run_id)
+    normalized_csv = run_dir / "normalized.csv"
+
+    if not normalized_csv.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile data not found"
+        )
+
+    # Read CSV to get row count and headers
+    row_count = 0
+    headers = []
+    with open(normalized_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=metadata.delimiter)
+        headers = reader.fieldnames or []
+        for _ in reader:
+            row_count += 1
+
+    # Build file metadata
+    file_metadata = FileMetadata(
+        rows=row_count,
+        columns=len(headers),
+        delimiter=metadata.delimiter,
+        crlf_detected=metadata.expect_crlf,
+        header=headers
+    )
+
+    # Convert error/warning dicts to ErrorDetail models
+    warnings = [ErrorDetail(**w) for w in metadata.warnings]
+    errors = [ErrorDetail(**e) for e in metadata.errors]
+
+    # Convert column profiles to ColumnProfileResponse models
+    column_profiles = []
+    for col_name, profile_data in metadata.column_profiles.items():
+        # Create base column profile
+        col_profile = ColumnProfileResponse(
+            name=profile_data.get("name", col_name),
+            type=profile_data.get("type", "unknown"),
+            null_count=profile_data.get("null_count", 0),
+            distinct_count=profile_data.get("distinct_count", 0),
+            distinct_pct=profile_data.get("distinct_pct", 0.0),
+            top_values=profile_data.get("top_values", [])
+        )
+
+        # Add type-specific fields
+        col_type = profile_data.get("type", "")
+
+        if col_type == "numeric":
+            col_profile.min = profile_data.get("min")
+            col_profile.max = profile_data.get("max")
+            col_profile.mean = profile_data.get("mean")
+            col_profile.median = profile_data.get("median")
+            col_profile.stddev = profile_data.get("stddev")
+            col_profile.quantiles = profile_data.get("quantiles")
+            col_profile.histogram = profile_data.get("histogram")
+            col_profile.gaussian_pvalue = profile_data.get("gaussian_pvalue")
+
+        elif col_type in ["alpha", "varchar", "code", "mixed", "unknown"]:
+            col_profile.min_length = profile_data.get("min_length")
+            col_profile.max_length = profile_data.get("max_length")
+            col_profile.avg_length = profile_data.get("avg_length")
+            col_profile.has_non_ascii = profile_data.get("has_non_ascii")
+            col_profile.character_types = profile_data.get("character_types")
+            if col_type == "code":
+                col_profile.cardinality_ratio = profile_data.get("cardinality_ratio")
+
+        elif col_type == "date":
+            col_profile.valid_count = profile_data.get("valid_count")
+            col_profile.invalid_count = profile_data.get("invalid_count")
+            col_profile.detected_format = profile_data.get("detected_format")
+            col_profile.format_consistent = profile_data.get("format_consistent")
+            col_profile.min_date = profile_data.get("min_date")
+            col_profile.max_date = profile_data.get("max_date")
+            col_profile.span_days = profile_data.get("span_days")
+
+        elif col_type == "money":
+            col_profile.valid_count = profile_data.get("valid_count")
+            col_profile.invalid_count = profile_data.get("invalid_count")
+            col_profile.min_value = profile_data.get("min_value")
+            col_profile.max_value = profile_data.get("max_value")
+            col_profile.two_decimal_ok = profile_data.get("two_decimal_ok")
+            col_profile.disallowed_symbols_found = profile_data.get("disallowed_symbols_found")
+
+        column_profiles.append(col_profile)
+
+    # Generate candidate keys based on distinct ratios and null counts
+    candidate_keys = []
+    for col_profile in column_profiles:
+        if col_profile.distinct_pct >= 95.0:  # High cardinality
+            distinct_ratio = col_profile.distinct_count / row_count if row_count > 0 else 0.0
+            null_ratio = col_profile.null_count / row_count if row_count > 0 else 0.0
+            score = distinct_ratio * (1.0 - null_ratio)
+
+            if score >= 0.9:  # Only suggest strong candidates
+                candidate_keys.append(CandidateKey(
+                    columns=[col_profile.name],
+                    distinct_ratio=distinct_ratio,
+                    null_ratio_sum=null_ratio,
+                    score=score
+                ))
+
+    # Sort by score descending
+    candidate_keys.sort(key=lambda k: k.score, reverse=True)
+
+    # Build complete profile
+    profile = ProfileResponse(
+        run_id=run_id,
+        file=file_metadata,
+        errors=errors,
+        warnings=warnings,
+        columns=column_profiles,
+        candidate_keys=candidate_keys[:5]  # Top 5 candidates
+    )
+
+    # Save profile to outputs directory
+    outputs_dir = Path("/data/outputs") / str(run_id)
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    profile_path = outputs_dir / "profile.json"
+    with open(profile_path, 'w') as f:
+        # Convert to dict and serialize
+        profile_dict = profile.model_dump(mode='json')
+        json.dump(profile_dict, f, indent=2)
+
+    return profile

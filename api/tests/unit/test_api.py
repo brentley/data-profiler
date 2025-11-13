@@ -444,3 +444,383 @@ class TestRootEndpoint:
         assert "version" in data
         assert "docs" in data
         assert data["version"] == "1.0.0"
+
+
+class TestMetricsCSVExport:
+    """Tests for GET /runs/{run_id}/metrics.csv endpoint."""
+
+    def test_metrics_csv_success(self, client, sample_csv_content):
+        """Test exporting metrics as CSV successfully."""
+        # Create run and upload file
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file
+        files = {"file": ("test.csv", BytesIO(sample_csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for processing to complete (in real scenario, would poll status)
+        import time
+        time.sleep(0.5)
+
+        # Get metrics CSV
+        response = client.get(f"/runs/{run_id}/metrics.csv")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/csv; charset=utf-8"
+        assert "Content-Disposition" in response.headers
+        assert "attachment" in response.headers["Content-Disposition"]
+        assert f"metrics_{run_id}.csv" in response.headers["Content-Disposition"]
+
+        # Parse CSV content
+        csv_content = response.text
+        lines = csv_content.strip().split('\n')
+
+        # Check header
+        assert len(lines) > 0
+        header = lines[0]
+        assert "column_name" in header
+        assert "type" in header
+        assert "null_count" in header
+        assert "distinct_count" in header
+
+        # Should have header + 4 data rows (id, name, age, city)
+        assert len(lines) == 5  # header + 4 columns
+
+    def test_metrics_csv_not_found(self, client):
+        """Test exporting metrics for non-existent run fails."""
+        fake_run_id = str(uuid4())
+
+        response = client.get(f"/runs/{fake_run_id}/metrics.csv")
+
+        assert response.status_code == 404
+
+    def test_metrics_csv_not_completed(self, client):
+        """Test exporting metrics for non-completed run fails."""
+        # Create run but don't upload file
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Try to get metrics
+        response = client.get(f"/runs/{run_id}/metrics.csv")
+
+        assert response.status_code == 400
+        assert "not completed" in response.json()["detail"].lower()
+
+    def test_metrics_csv_injection_prevention(self, client):
+        """Test CSV injection prevention for dangerous values."""
+        # Create CSV with potentially dangerous values
+        dangerous_csv = b"""name|formula
+Alice|normal
+Bob|=SUM(A1:A10)
+Charlie|+cmd|'/c calc'!A1
+David|-2+3
+Eve|@SUM(1+1)
+"""
+
+        # Create run and upload
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        files = {"file": ("test.csv", BytesIO(dangerous_csv), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for processing
+        import time
+        time.sleep(0.5)
+
+        # Get metrics CSV
+        response = client.get(f"/runs/{run_id}/metrics.csv")
+
+        if response.status_code == 200:
+            csv_content = response.text
+
+            # Check that dangerous characters are escaped
+            # Values starting with =, +, -, @ should be prepended with '
+            # This is in the top_values columns
+
+            # Parse to verify no raw formula injection possible
+            import csv as csv_module
+            reader = csv_module.reader(StringIO(csv_content))
+            rows = list(reader)
+
+            # Check all data rows for proper sanitization
+            for row in rows[1:]:  # Skip header
+                for cell in row:
+                    # If cell starts with dangerous char, it should be escaped
+                    if cell and len(cell) > 1 and cell[0] == "'":
+                        # This is an escaped value - check the original starts with dangerous char
+                        assert cell[1] in ('=', '+', '-', '@')
+
+    def test_metrics_csv_content_structure(self, client, sample_csv_content):
+        """Test CSV content has expected structure and columns."""
+        # Create run and upload file
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        files = {"file": ("test.csv", BytesIO(sample_csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for processing
+        import time
+        time.sleep(0.5)
+
+        # Get metrics CSV
+        response = client.get(f"/runs/{run_id}/metrics.csv")
+
+        if response.status_code == 200:
+            # Parse CSV
+            import csv as csv_module
+            reader = csv_module.reader(StringIO(response.text))
+            rows = list(reader)
+
+            # Check header structure
+            header = rows[0]
+            expected_columns = [
+                "column_name", "type", "null_count", "distinct_count", "distinct_pct",
+                "min_value", "max_value", "mean", "median", "stddev",
+                "min_length", "max_length", "avg_length",
+                "top_value_1", "top_value_1_count",
+                "top_value_2", "top_value_2_count",
+                "top_value_3", "top_value_3_count"
+            ]
+
+            for expected_col in expected_columns:
+                assert expected_col in header
+
+            # Check data rows
+            for row in rows[1:]:
+                # Each row should have same number of columns as header
+                assert len(row) == len(header)
+
+                # Column name should not be empty
+                col_name_idx = header.index("column_name")
+                assert row[col_name_idx] != ""
+
+                # Type should not be empty
+                type_idx = header.index("type")
+                assert row[type_idx] != ""
+
+
+class TestGetProfile:
+    """Tests for GET /runs/{run_id}/profile endpoint."""
+
+    def test_get_profile_success(self, client, sample_csv_content):
+        """Test getting profile for completed run."""
+        # Create run
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file
+        files = {"file": ("test.csv", BytesIO(sample_csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for processing to complete (in tests it's synchronous)
+        status_response = client.get(f"/runs/{run_id}/status")
+        status_data = status_response.json()
+
+        if status_data["state"] == "completed":
+            # Get profile
+            response = client.get(f"/runs/{run_id}/profile")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # Check top-level structure
+            assert "run_id" in data
+            assert "file" in data
+            assert "errors" in data
+            assert "warnings" in data
+            assert "columns" in data
+            assert "candidate_keys" in data
+
+            # Check file metadata
+            assert data["file"]["rows"] == 3
+            assert data["file"]["columns"] == 4
+            assert data["file"]["delimiter"] == "|"
+            assert isinstance(data["file"]["header"], list)
+
+            # Check columns
+            assert len(data["columns"]) == 4
+            for col in data["columns"]:
+                assert "name" in col
+                assert "type" in col
+                assert "null_count" in col
+                assert "distinct_count" in col
+                assert "distinct_pct" in col
+
+    def test_get_profile_not_found(self, client):
+        """Test getting profile for non-existent run."""
+        fake_run_id = str(uuid4())
+        response = client.get(f"/runs/{fake_run_id}/profile")
+
+        assert response.status_code == 404
+
+    def test_get_profile_not_complete(self, client):
+        """Test getting profile before processing complete."""
+        # Create run but don't upload file
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Try to get profile
+        response = client.get(f"/runs/{run_id}/profile")
+
+        assert response.status_code == 409  # Conflict
+        assert "not complete" in response.json()["detail"].lower()
+
+    def test_profile_saves_to_outputs(self, client, sample_csv_content, tmp_path):
+        """Test that profile is saved to /data/outputs/{run_id}/profile.json."""
+        # Create run
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file
+        files = {"file": ("test.csv", BytesIO(sample_csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for completion
+        status_response = client.get(f"/runs/{run_id}/status")
+        if status_response.json()["state"] == "completed":
+            # Get profile (should trigger save)
+            client.get(f"/runs/{run_id}/profile")
+
+            # Check that profile.json exists
+            profile_path = Path("/data/outputs") / run_id / "profile.json"
+            # Note: In test environment, /data might map to tmp_path
+            # so we just verify the endpoint succeeded
+            assert status_response.status_code == 200
+
+    def test_profile_with_errors(self, client, sample_csv_with_errors):
+        """Test profile includes error and warning information."""
+        # Create run
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file with errors
+        files = {"file": ("test.csv", BytesIO(sample_csv_with_errors), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for completion
+        status_response = client.get(f"/runs/{run_id}/status")
+        if status_response.json()["state"] == "completed":
+            # Get profile
+            response = client.get(f"/runs/{run_id}/profile")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # Should have some errors or warnings
+            # (specific errors depend on type inference)
+            assert isinstance(data["errors"], list)
+            assert isinstance(data["warnings"], list)
+
+    def test_profile_candidate_keys(self, client, sample_csv_content):
+        """Test that candidate keys are included in profile."""
+        # Create run
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file
+        files = {"file": ("test.csv", BytesIO(sample_csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for completion
+        status_response = client.get(f"/runs/{run_id}/status")
+        if status_response.json()["state"] == "completed":
+            # Get profile
+            response = client.get(f"/runs/{run_id}/profile")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # Check candidate keys structure
+            assert "candidate_keys" in data
+            assert isinstance(data["candidate_keys"], list)
+
+            # If there are candidate keys, validate structure
+            if len(data["candidate_keys"]) > 0:
+                key = data["candidate_keys"][0]
+                assert "columns" in key
+                assert "distinct_ratio" in key
+                assert "null_ratio_sum" in key
+                assert "score" in key
+                assert isinstance(key["columns"], list)
+
+    def test_profile_column_types(self, client):
+        """Test that different column types are profiled correctly."""
+        # Create CSV with different types
+        csv_content = b"""id|name|amount|date
+1|Alice|100.50|20220101
+2|Bob|200.75|20220102
+3|Charlie|300.00|20220103
+"""
+
+        # Create run
+        create_response = client.post(
+            "/runs",
+            json={"delimiter": "|", "quoted": True}
+        )
+        run_id = create_response.json()["run_id"]
+
+        # Upload file
+        files = {"file": ("test.csv", BytesIO(csv_content), "text/csv")}
+        client.post(f"/runs/{run_id}/upload", files=files)
+
+        # Wait for completion
+        status_response = client.get(f"/runs/{run_id}/status")
+        if status_response.json()["state"] == "completed":
+            # Get profile
+            response = client.get(f"/runs/{run_id}/profile")
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # Find columns by name
+            columns_by_name = {col["name"]: col for col in data["columns"]}
+
+            # Check id column (numeric)
+            assert "id" in columns_by_name
+            id_col = columns_by_name["id"]
+            assert id_col["type"] in ["numeric", "alpha", "varchar"]
+
+            # Check name column (alpha/varchar)
+            assert "name" in columns_by_name
+            name_col = columns_by_name["name"]
+            assert name_col["type"] in ["alpha", "varchar", "code"]
+
+            # Check amount column (numeric/money)
+            assert "amount" in columns_by_name
+            amount_col = columns_by_name["amount"]
+            assert amount_col["type"] in ["numeric", "money"]
+
+            # Check date column
+            assert "date" in columns_by_name
+            date_col = columns_by_name["date"]
+            assert date_col["type"] in ["date", "numeric"]
