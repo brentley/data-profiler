@@ -117,8 +117,8 @@ class TestMoneyValidatorBatch:
         result = validator.validate_column(values)
 
         assert result.total_count == 5
-        assert result.valid_count == 2  # First two and fourth
-        assert result.invalid_count == 2  # Third and fifth
+        assert result.valid_count == 3  # 123.45, 67.89, 0.00
+        assert result.invalid_count == 2  # $12.34, 1,234.56
         assert result.null_count == 0
 
     def test_count_violations(self):

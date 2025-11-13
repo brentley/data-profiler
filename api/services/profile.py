@@ -5,6 +5,8 @@ This module provides exact statistical profiling for different column types:
 - NumericProfiler: min, max, mean, median, stddev, quantiles, histogram
 - StringProfiler: length stats, character analysis, top-10 values
 - DateProfiler: min/max dates, format detection, range validation
+- MoneyProfiler: money format validation, min/max/mean for valid values
+- CodeProfiler: distinct values, frequency distribution, cardinality analysis
 - MoneyValidator: money format validation
 - DateValidator: date format detection and validation
 
@@ -1029,3 +1031,138 @@ class DateProfiler:
             DateStats
         """
         return self.validator.validate_column(self.values)
+
+
+# ============================================================================
+# Money Profiler (for use with streaming)
+# ============================================================================
+
+class MoneyProfiler:
+    """
+    Streaming profiler for money columns.
+
+    Wraps MoneyValidator for streaming use case.
+    """
+
+    def __init__(self):
+        """Initialize profiler."""
+        self.validator = MoneyValidator()
+        self.values: List[str] = []
+
+    def update(self, value: str) -> None:
+        """
+        Add value to profiler.
+
+        Args:
+            value: Money string
+        """
+        self.values.append(value)
+
+    def finalize(self) -> MoneyValidationResult:
+        """
+        Compute final statistics.
+
+        Returns:
+            MoneyValidationResult
+        """
+        return self.validator.validate_column(self.values)
+
+
+# ============================================================================
+# Code Profiler (for dictionary-like columns)
+# ============================================================================
+
+@dataclass
+class CodeStats:
+    """Statistics for code (dictionary-like) columns."""
+    count: int = 0
+    null_count: int = 0
+    distinct_count: int = 0
+    cardinality_ratio: float = 0.0
+    top_values: List[Tuple[str, int]] = field(default_factory=list)
+    value_distribution: Dict[str, int] = field(default_factory=dict)
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    avg_length: float = 0.0
+
+
+class CodeProfiler:
+    """
+    Profiler for code columns (dictionary-like with limited distinct values).
+
+    Computes frequency distribution, cardinality, and top-N values.
+    """
+
+    def __init__(self, top_n: int = 10):
+        """
+        Initialize profiler.
+
+        Args:
+            top_n: Number of top values to track
+        """
+        self.top_n = top_n
+        self.value_counts: Counter = Counter()
+        self.null_count = 0
+        self.min_length: Optional[int] = None
+        self.max_length: Optional[int] = None
+        self.total_length = 0
+        self.value_count = 0
+
+    def update(self, value: str) -> None:
+        """
+        Update statistics with a new value.
+
+        Args:
+            value: String value from CSV
+        """
+        # Handle nulls
+        if not value or value.strip() == '':
+            self.null_count += 1
+            return
+
+        value = value.strip()
+        self.value_count += 1
+
+        # Track value frequency
+        self.value_counts[value] += 1
+
+        # Length statistics
+        length = len(value)
+        self.total_length += length
+
+        if self.min_length is None or length < self.min_length:
+            self.min_length = length
+        if self.max_length is None or length > self.max_length:
+            self.max_length = length
+
+    def finalize(self) -> CodeStats:
+        """
+        Compute final statistics.
+
+        Returns:
+            CodeStats with all computed metrics
+        """
+        # Compute average length
+        avg_length = self.total_length / self.value_count if self.value_count > 0 else 0.0
+
+        # Get top N values
+        top_values = self.value_counts.most_common(self.top_n)
+
+        # Distinct count
+        distinct_count = len(self.value_counts)
+
+        # Cardinality ratio
+        total_count = self.value_count + self.null_count
+        cardinality_ratio = distinct_count / total_count if total_count > 0 else 0.0
+
+        return CodeStats(
+            count=total_count,
+            null_count=self.null_count,
+            distinct_count=distinct_count,
+            cardinality_ratio=cardinality_ratio,
+            top_values=top_values,
+            value_distribution=dict(self.value_counts),
+            min_length=self.min_length,
+            max_length=self.max_length,
+            avg_length=avg_length
+        )
