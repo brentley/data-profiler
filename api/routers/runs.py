@@ -5,10 +5,7 @@ This module implements the FastAPI routes for profiling run management.
 """
 
 import csv
-<<<<<<< HEAD
 import json
-=======
->>>>>>> origin/main
 import gzip
 import tempfile
 from datetime import datetime
@@ -18,7 +15,6 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-<<<<<<< HEAD
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..models.run import (
@@ -28,13 +24,6 @@ from ..models.run import (
     ErrorDetail,
     FileUploadResponse,
     ProfileResponse,
-=======
-from fastapi.responses import JSONResponse
-
-from ..models.run import (
-    ErrorDetail,
-    FileUploadResponse,
->>>>>>> origin/main
     RunCreate,
     RunResponse,
     RunState,
@@ -57,18 +46,12 @@ from ..services.profile import (
     CodeProfiler,
 )
 from ..services.distincts import DistinctCounter
-<<<<<<< HEAD
 from ..services.audit import AuditLogger
-=======
->>>>>>> origin/main
 from ..storage.workspace import WorkspaceManager
 
 # Workspace manager (initialized lazily)
 _workspace: Optional[WorkspaceManager] = None
-<<<<<<< HEAD
 _audit_logger: Optional[AuditLogger] = None
-=======
->>>>>>> origin/main
 
 
 def get_workspace() -> WorkspaceManager:
@@ -80,7 +63,6 @@ def get_workspace() -> WorkspaceManager:
     return _workspace
 
 
-<<<<<<< HEAD
 def get_audit_logger() -> AuditLogger:
     """Get or create audit logger."""
     global _audit_logger
@@ -90,8 +72,6 @@ def get_audit_logger() -> AuditLogger:
     return _audit_logger
 
 
-=======
->>>>>>> origin/main
 def set_workspace(workspace_manager: WorkspaceManager):
     """Set workspace manager (for testing)."""
     global _workspace
@@ -119,18 +99,14 @@ async def create_run(run_config: RunCreate) -> RunResponse:
     """
     try:
         workspace = get_workspace()
-<<<<<<< HEAD
         audit_logger = get_audit_logger()
 
-=======
->>>>>>> origin/main
         metadata = workspace.create_run(
             delimiter=run_config.delimiter,
             quoted=run_config.quoted,
             expect_crlf=run_config.expect_crlf
         )
 
-<<<<<<< HEAD
         # Log run creation
         audit_logger.log_run_created(
             run_id=metadata.run_id,
@@ -139,8 +115,6 @@ async def create_run(run_config: RunCreate) -> RunResponse:
             expect_crlf=run_config.expect_crlf
         )
 
-=======
->>>>>>> origin/main
         return RunResponse(
             run_id=metadata.run_id,
             state=metadata.state,
@@ -226,7 +200,6 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
         # Save uploaded file
         workspace.save_uploaded_file(run_id, file_content, filename)
 
-<<<<<<< HEAD
         # Log file upload with hash and byte count
         audit_logger = get_audit_logger()
         audit_logger.log_file_uploaded(
@@ -236,8 +209,6 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
             is_gzipped=is_gzipped
         )
 
-=======
->>>>>>> origin/main
         # Update state to processing
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=0.0)
 
@@ -431,10 +402,7 @@ async def process_file(
     2. CRLF detection
     3. CSV parsing with header validation
     4. Type inference
-<<<<<<< HEAD
     5. Column profiling
-=======
->>>>>>> origin/main
 
     Args:
         run_id: Run UUID
@@ -446,16 +414,11 @@ async def process_file(
     Raises:
         HTTPException: If catastrophic errors occur
     """
-<<<<<<< HEAD
     audit_logger = get_audit_logger()
 
     try:
         # Step 1: UTF-8 Validation (10% progress)
         audit_logger.log_validation_started(run_id)
-=======
-    try:
-        # Step 1: UTF-8 Validation (10% progress)
->>>>>>> origin/main
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=10.0)
 
         stream = BytesIO(file_content)
@@ -473,14 +436,11 @@ async def process_file(
                     count=1
                 )
             )
-<<<<<<< HEAD
             audit_logger.log_run_failed(
                 run_id=run_id,
                 error_code="E_UTF8_INVALID",
                 error_message=validation_result.error or "Invalid UTF-8 encoding"
             )
-=======
->>>>>>> origin/main
             return
 
         # Step 2: CRLF Detection (20% progress)
@@ -493,7 +453,6 @@ async def process_file(
         # Normalize line endings
         normalized_content = detector.normalize()
 
-<<<<<<< HEAD
         # Log validation completion with line ending counts
         audit_logger.log_validation_completed(
             run_id=run_id,
@@ -504,8 +463,6 @@ async def process_file(
             mixed_endings=line_ending_result.mixed
         )
 
-=======
->>>>>>> origin/main
         # Record line ending info as warning if mixed
         if line_ending_result.mixed:
             workspace.add_warning(
@@ -516,7 +473,6 @@ async def process_file(
                     count=1
                 )
             )
-<<<<<<< HEAD
             audit_logger.log_warning(
                 run_id=run_id,
                 warning_code="W_LINE_ENDING",
@@ -525,10 +481,6 @@ async def process_file(
 
         # Step 3: CSV Parsing (50% progress)
         audit_logger.log_parsing_started(run_id)
-=======
-
-        # Step 3: CSV Parsing (50% progress)
->>>>>>> origin/main
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=30.0)
 
         # Create text stream from normalized content
@@ -554,14 +506,11 @@ async def process_file(
                 run_id,
                 ErrorDetail(code=e.code, message=e.message, count=1)
             )
-<<<<<<< HEAD
             audit_logger.log_run_failed(
                 run_id=run_id,
                 error_code=e.code,
                 error_message=e.message
             )
-=======
->>>>>>> origin/main
             return
 
         # Count rows for progress tracking
@@ -582,16 +531,12 @@ async def process_file(
                     run_id,
                     ErrorDetail(code=error_code, message=f"Parser warning: {error_code}", count=count)
                 )
-<<<<<<< HEAD
                 audit_logger.log_warning(run_id=run_id, warning_code=error_code, count=count)
-=======
->>>>>>> origin/main
             else:
                 workspace.add_error(
                     run_id,
                     ErrorDetail(code=error_code, message=f"Parser error: {error_code}", count=count)
                 )
-<<<<<<< HEAD
                 audit_logger.log_error(run_id=run_id, error_code=error_code, count=count)
 
         # Log parsing completion with counts (NO VALUES)
@@ -606,10 +551,6 @@ async def process_file(
 
         # Step 4: Type Inference (60% progress)
         audit_logger.log_type_inference_started(run_id)
-=======
-
-        # Step 4: Type Inference (60% progress)
->>>>>>> origin/main
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=50.0)
 
         # Save normalized content to temp file for type inference
@@ -622,7 +563,6 @@ async def process_file(
         inferrer = TypeInferrer(sample_size=None)  # Full inference
         type_result = inferrer.infer_column_types(temp_csv, delimiter=delimiter)
 
-<<<<<<< HEAD
         # Collect type inference results for audit log
         column_types = {}
         error_counts = {}
@@ -634,10 +574,6 @@ async def process_file(
             error_counts[col_name] = col_info.error_count
             warning_counts[col_name] = col_info.warning_count
 
-=======
-        # Process type inference results
-        for col_name, col_info in type_result.columns.items():
->>>>>>> origin/main
             if col_info.error_count > 0:
                 workspace.add_error(
                     run_id,
@@ -647,15 +583,12 @@ async def process_file(
                         count=col_info.error_count
                     )
                 )
-<<<<<<< HEAD
                 audit_logger.log_error(
                     run_id=run_id,
                     error_code=f"E_{col_info.inferred_type.upper()}_FORMAT",
                     count=col_info.error_count
                 )
 
-=======
->>>>>>> origin/main
             if col_info.warning_count > 0:
                 workspace.add_warning(
                     run_id,
@@ -665,7 +598,6 @@ async def process_file(
                         count=col_info.warning_count
                     )
                 )
-<<<<<<< HEAD
                 audit_logger.log_warning(
                     run_id=run_id,
                     warning_code=f"W_{col_info.inferred_type.upper()}_FORMAT",
@@ -682,10 +614,6 @@ async def process_file(
 
         # Step 5: Profile Each Column (50-100% progress)
         audit_logger.log_profiling_started(run_id)
-=======
-
-        # Step 5: Profile Each Column (50-100% progress)
->>>>>>> origin/main
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=60.0)
 
         column_profiles = await profile_columns(
@@ -699,7 +627,6 @@ async def process_file(
         # Store profile results in workspace metadata
         workspace.save_column_profiles(run_id, column_profiles)
 
-<<<<<<< HEAD
         # Calculate aggregate statistics for audit log
         total_null_count = sum(
             profile.get('null_count', 0)
@@ -733,11 +660,6 @@ async def process_file(
             total_warnings=total_warnings
         )
 
-=======
-        # Step 6: Complete (100% progress)
-        workspace.update_state(run_id, RunState.COMPLETED, progress_pct=100.0)
-
->>>>>>> origin/main
     except ParserError as e:
         # Catastrophic parser error
         workspace.update_state(run_id, RunState.FAILED)
@@ -745,14 +667,11 @@ async def process_file(
             run_id,
             ErrorDetail(code=e.code, message=e.message, count=1)
         )
-<<<<<<< HEAD
         audit_logger.log_run_failed(
             run_id=run_id,
             error_code=e.code,
             error_message=e.message
         )
-=======
->>>>>>> origin/main
     except Exception as e:
         # Unexpected error
         workspace.update_state(run_id, RunState.FAILED)
@@ -760,15 +679,12 @@ async def process_file(
             run_id,
             ErrorDetail(code="E_PROCESSING_FAILED", message=str(e), count=1)
         )
-<<<<<<< HEAD
         audit_logger.log_run_failed(
             run_id=run_id,
             error_code="E_PROCESSING_FAILED",
             error_message=str(e)
         )
 
-=======
->>>>>>> origin/main
 
 
 @router.get("/{run_id}/status", response_model=RunStatus)
@@ -817,7 +733,6 @@ async def get_run_status(run_id: UUID) -> RunStatus:
         errors=errors,
         column_profiles=metadata.column_profiles
     )
-<<<<<<< HEAD
 
 
 def sanitize_csv_value(value) -> str:
@@ -1181,5 +1096,3 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         json.dump(profile_dict, f, indent=2)
 
     return profile
-=======
->>>>>>> origin/main
