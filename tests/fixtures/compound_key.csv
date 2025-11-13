@@ -1,7 +1,11 @@
-FirstName|LastName|DOB|City|Email
-Alice|Smith|19900101|NYC|alice.smith@example.com
-Bob|Jones|19850515|LA|bob.jones@example.com
-Alice|Johnson|19920301|NYC|alice.johnson@example.com
-Bob|Smith|19880715|SF|bob.smith@example.com
-Alice|Smith|19870920|Chicago|alice.smith.chi@example.com
-Charlie|Brown|19950101|NYC|charlie.brown@example.com
+First_Name|Last_Name|Date|Department|Employee_ID|Salary|Manager
+John|Smith|20240115|Sales|E1001|75000.00|Jane Doe
+Jane|Doe|20240115|Engineering|E1002|95000.00|Bob Johnson
+Bob|Johnson|20240115|HR|E1003|65000.00|Jane Doe
+Alice|Brown|20240116|Sales|E1004|72000.00|Jane Doe
+John|Smith|20240116|Marketing|E1005|78000.00|Alice Brown
+Charlie|Davis|20240116|Engineering|E1006|88000.00|Jane Doe
+Eve|Wilson|20240117|Sales|E1007|70000.00|Jane Doe
+John|Smith|20240115|IT|E1008|82000.00|Bob Johnson
+Frank|Miller|20240117|HR|E1009|67000.00|Bob Johnson
+Grace|Lee|20240118|Engineering|E1010|91000.00|Jane Doe
