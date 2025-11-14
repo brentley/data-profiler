@@ -206,8 +206,8 @@ class TestDistinctCountResult:
         top_2 = result.get_top_n(2)
 
         assert len(top_2) == 2
-        assert top_2[0] == ('A', 5)
-        assert top_2[1] == ('B', 3)
+        assert top_2[0] == {'value': 'A', 'count': 5}
+        assert top_2[1] == {'value': 'B', 'count': 3}
 
     def test_get_top_n_more_than_available(self):
         """Should return all values if N > distinct count."""

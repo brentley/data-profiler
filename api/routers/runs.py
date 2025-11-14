@@ -1097,7 +1097,8 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
     )
 
     # Save profile to outputs directory
-    outputs_dir = Path(os.getenv("OUTPUT_DIR", "/data/outputs")) / str(run_id)
+    audit_logger = get_audit_logger()
+    outputs_dir = audit_logger.output_dir / str(run_id)
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
     profile_path = outputs_dir / "profile.json"

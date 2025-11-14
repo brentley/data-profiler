@@ -731,8 +731,8 @@ class TestGetProfile:
         assert response.status_code == 409  # Conflict
         assert "not complete" in response.json()["detail"].lower()
 
-    def test_profile_saves_to_outputs(self, client, sample_csv_content, tmp_path):
-        """Test that profile is saved to /data/outputs/{run_id}/profile.json."""
+    def test_profile_saves_to_outputs(self, client, sample_csv_content, temp_workspace):
+        """Test that profile is saved to outputs/{run_id}/profile.json."""
         # Create run
         create_response = client.post(
             "/runs",
@@ -748,13 +748,15 @@ class TestGetProfile:
         status_response = client.get(f"/runs/{run_id}/status")
         if status_response.json()["state"] == "completed":
             # Get profile (should trigger save)
-            client.get(f"/runs/{run_id}/profile")
+            profile_response = client.get(f"/runs/{run_id}/profile")
 
-            # Check that profile.json exists
-            profile_path = Path("/data/outputs") / run_id / "profile.json"
-            # Note: In test environment, /data might map to tmp_path
-            # so we just verify the endpoint succeeded
-            assert status_response.status_code == 200
+            # Verify the endpoint succeeded
+            assert profile_response.status_code == 200
+
+            # Verify profile data is complete
+            profile_data = profile_response.json()
+            assert "run_id" in profile_data
+            assert "columns" in profile_data
 
     def test_profile_with_errors(self, client, sample_csv_with_errors):
         """Test profile includes error and warning information."""

@@ -142,7 +142,7 @@ class TestProfilingIntegration:
         # Check top values
         top_values = result.get_top_n(3)
         assert len(top_values) == 3
-        names = [v[0] for v in top_values]
+        names = [v['value'] for v in top_values]
         assert 'Alice' in names
         assert 'Bob' in names
         assert 'Charlie' in names

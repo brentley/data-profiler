@@ -171,10 +171,10 @@ class TestTopValuesTracking:
         top_values = result.top_values
 
         assert len(top_values) == 4
-        assert top_values[0] == ("a", 10)
-        assert top_values[1] == ("b", 5)
-        assert top_values[2] == ("c", 3)
-        assert top_values[3] == ("d", 1)
+        assert top_values[0] == {"value": "a", "count": 10}
+        assert top_values[1] == {"value": "b", "count": 5}
+        assert top_values[2] == {"value": "c", "count": 3}
+        assert top_values[3] == {"value": "d", "count": 1}
 
     def test_top_10_limit(self):
         """Should limit to top 10 values."""
@@ -187,7 +187,7 @@ class TestTopValuesTracking:
         result = counter.count_distinct(values)
         assert len(result.top_values) == 10
         # Most frequent should be val_0 with 100 occurrences
-        assert result.top_values[0] == ("val_0", 100)
+        assert result.top_values[0] == {"value": "val_0", "count": 100}
 
     def test_top_values_with_nulls(self):
         """Should exclude nulls from top values."""
@@ -196,7 +196,7 @@ class TestTopValuesTracking:
 
         result = counter.count_distinct(values)
         # Nulls should not appear in top values
-        assert all(v[0] != "" for v in result.top_values)
+        assert all(v["value"] != "" for v in result.top_values)
 
     def test_top_values_ordering(self):
         """Should order top values by frequency."""
@@ -205,9 +205,9 @@ class TestTopValuesTracking:
 
         result = counter.count_distinct(values)
         # Should be ordered: a, b, c
-        assert result.top_values[0][0] == "a"
-        assert result.top_values[1][0] == "b"
-        assert result.top_values[2][0] == "c"
+        assert result.top_values[0]["value"] == "a"
+        assert result.top_values[1]["value"] == "b"
+        assert result.top_values[2]["value"] == "c"
 
     def test_top_values_min_heap(self):
         """Should use min-heap for memory efficiency."""

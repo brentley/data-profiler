@@ -27,6 +27,7 @@ from .profile import (
     CodeProfiler,
 )
 from .distincts import DistinctCounter
+from .keys import CandidateKeyAnalyzer
 
 
 @dataclass
@@ -290,10 +291,14 @@ class ProfilePipeline:
             # Get error rollup
             error_rollup = parser.get_error_rollup()
             for error_code, count in error_rollup.items():
+                # Get first error for this code to include line number
+                first_error = next((e for e in parser.errors if e.code == error_code), None)
+                line_info = f" at line {first_error.line_number}" if first_error and first_error.line_number else ""
+
                 if error_code.startswith('W_'):
-                    self._add_warning(error_code, f'Parser warning: {error_code}', count)
+                    self._add_warning(error_code, f'Parser warning: {error_code}{line_info}', count)
                 else:
-                    self._add_error(error_code, f'Parser error: {error_code}', count)
+                    self._add_error(error_code, f'Parser error: {error_code}{line_info}', count)
 
             return True
 
@@ -396,11 +401,16 @@ class ProfilePipeline:
                 delimiter=self.delimiter
             )
 
+            # Calculate null percentage
+            null_count = stats.null_count if hasattr(stats, 'null_count') else 0
+            null_pct = (null_count / self.row_count * 100.0) if self.row_count > 0 else 0.0
+
             # Build profile
             profile = {
                 'name': col_name,
                 'inferred_type': col_info.inferred_type,
-                'null_count': stats.null_count if hasattr(stats, 'null_count') else 0,
+                'null_count': null_count,
+                'null_pct': null_pct,
                 'distinct_count': distinct_result.distinct_count,
                 'distinct_pct': distinct_result.cardinality_ratio * 100.0,
             }
@@ -443,6 +453,9 @@ class ProfilePipeline:
         Returns:
             Complete profile dictionary
         """
+        # Generate candidate key suggestions
+        candidate_keys = self._generate_candidate_keys(column_profiles)
+
         return {
             'run_id': self.run_id,
             'file': {
@@ -452,9 +465,39 @@ class ProfilePipeline:
                 'header': self.header_result.headers,
             },
             'columns': [column_profiles[col] for col in self.header_result.headers],
+            'candidate_keys': candidate_keys,
             'errors': self.errors,
             'warnings': self.warnings,
         }
+
+    def _generate_candidate_keys(self, column_profiles: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate candidate key suggestions based on column profiles.
+
+        Args:
+            column_profiles: Dictionary of column profiles
+
+        Returns:
+            List of candidate key suggestions
+        """
+        # Build column stats for CandidateKeyAnalyzer
+        column_stats = {}
+        for col_name, profile in column_profiles.items():
+            column_stats[col_name] = {
+                'distinct_count': profile['distinct_count'],
+                'total_count': self.row_count,
+                'null_count': profile['null_count']
+            }
+
+        # Use CandidateKeyAnalyzer to generate suggestions
+        analyzer = CandidateKeyAnalyzer(
+            max_suggestions=5,
+            min_score=0.5,
+            min_distinct_ratio=0.5
+        )
+
+        candidates = analyzer.suggest_candidates(column_stats)
+        return candidates
 
     def _generate_artifacts(self, profile: Dict[str, Any]) -> None:
         """
@@ -527,7 +570,7 @@ class ProfilePipeline:
         audit_path = self.output_dir / 'audit.log.json'
         audit_log = {
             'run_id': self.run_id,
-            'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.datetime.now(datetime.UTC).isoformat(),
             'input_file': str(self.input_path),
             'workspace': str(self.workspace),
             'config': self.config,
