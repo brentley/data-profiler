@@ -553,24 +553,62 @@ make up
 
 ## CI/CD Integration
 
-### GitHub Actions (Future)
+### GitHub Actions
+
+The project includes a complete CI/CD pipeline with GitHub Actions. See `.github/workflows/ci.yml` for the full configuration.
+
+**Pipeline includes:**
+- ✅ Python tests (3.10, 3.11, 3.12)
+- ✅ Web frontend build and lint
+- ✅ Security scans (Bandit, Safety, Semgrep, Trivy)
+- ✅ Multi-architecture Docker builds (amd64 + arm64)
+- ✅ Automatic push to GitHub Container Registry (GHCR)
+
+**Quick Start:**
+```bash
+# Workflows run automatically on push to main/develop
+git push origin main
+
+# View results in GitHub Actions tab
+```
+
+**Runner Options:**
+
+1. **GitHub-Hosted Runners** (Default)
+   - Zero setup, works immediately
+   - 2,000 free minutes/month for private repos
+   - Suitable for most workflows
+
+2. **Self-Hosted Runners** (Recommended for production)
+   - Better performance (4x faster for multi-arch builds)
+   - No minute limits
+   - Full control over environment
+
+**Documentation:**
+- **Quick Start**: [docs/CICD_QUICK_START.md](docs/CICD_QUICK_START.md)
+- **Self-Hosted Setup**: [docs/GITHUB_RUNNER_SETUP.md](docs/GITHUB_RUNNER_SETUP.md)
+- **Runner Comparison**: [docs/RUNNER_COMPARISON.md](docs/RUNNER_COMPARISON.md)
+- **Workflow Details**: [.github/README.md](.github/README.md)
+
+### Watchtower Auto-Deployment (Optional)
+
+For automatic deployment when new images are pushed to GHCR:
 
 ```yaml
-# .github/workflows/deploy.yml
-name: Build and Deploy
-on:
-  push:
-    branches: [main]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build images
-        run: make build
-      - name: Run tests
-        run: make test
+# Add to docker-compose.yml
+services:
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=30
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+    command: --label-enable
 ```
+
+**Note**: Requires authentication to GHCR. See VisiQuate DevOps patterns for details.
 
 ## Support and Documentation
 
