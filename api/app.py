@@ -4,15 +4,20 @@ VQ8 Data Profiler API.
 FastAPI application for data profiling with run lifecycle management.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .models.run import HealthResponse
 from .routers import runs
+
+# Load environment variables from .env file
+load_dotenv()
 
 # API version
 API_VERSION = "1.0.0"
@@ -95,11 +100,11 @@ async def startup_event():
     Ensures required directories exist.
     """
     # Ensure work directory exists
-    work_dir = Path("/data/work")
+    work_dir = Path(os.getenv("WORK_DIR", "/data/work"))
     work_dir.mkdir(parents=True, exist_ok=True)
 
     # Ensure outputs directory exists
-    outputs_dir = Path("/data/outputs")
+    outputs_dir = Path(os.getenv("OUTPUT_DIR", "/data/outputs"))
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
 

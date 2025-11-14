@@ -115,10 +115,10 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* File Upload Dropzone */}
-      <div>
-        <label className="block text-sm font-medium mb-2">
+      <div style={{ width: '100%' }}>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Select File
         </label>
         <div
@@ -137,9 +137,11 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
             aria-label="File upload"
           />
           {file ? (
-            <div className="text-center">
+            <div className="flex items-center gap-2">
               <svg
-                className="mx-auto h-12 w-12 text-green-500"
+                width="24"
+                height="24"
+                className="h-6 w-6 text-green-500 flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -151,27 +153,28 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                 />
               </svg>
-              <p className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
-                {file.name}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {formatFileSize(file.size)}
-              </p>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {file.name} ({formatFileSize(file.size)})
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setFile(null);
                 }}
-                className="mt-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400"
+                className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 px-2 flex-shrink-0"
               >
                 Remove
               </button>
             </div>
           ) : (
-            <div className="text-center">
+            <div className="flex items-center gap-2">
               <svg
-                className="mx-auto h-12 w-12 text-gray-400"
+                width="24"
+                height="24"
+                className="h-6 w-6 text-gray-400 flex-shrink-0"
                 stroke="currentColor"
                 fill="none"
                 viewBox="0 0 48 48"
@@ -183,13 +186,11 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
                   strokeLinejoin="round"
                 />
               </svg>
-              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-semibold">Click to upload</span> or drag
-                and drop
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-500">
-                .txt, .csv, or .gz files
-              </p>
+              <div className="flex-1 text-left">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  <span className="font-semibold">Click to upload</span> or drag and drop (.txt, .csv, or .gz)
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -197,27 +198,27 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
 
       {/* Delimiter Selection */}
       <div>
-        <label className="block text-sm font-medium mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Delimiter
         </label>
         <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
             <input
               type="radio"
               value="|"
               checked={delimiter === '|'}
               onChange={(e) => setDelimiter(e.target.value as '|')}
-              className="w-4 h-4 text-vq-primary focus:ring-vq-primary"
+              className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2"
             />
             <span className="text-sm">Pipe (|)</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
             <input
               type="radio"
               value=","
               checked={delimiter === ','}
               onChange={(e) => setDelimiter(e.target.value as ',')}
-              className="w-4 h-4 text-vq-primary focus:ring-vq-primary"
+              className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2"
             />
             <span className="text-sm">Comma (,)</span>
           </label>
@@ -225,24 +226,24 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
       </div>
 
       {/* Options */}
-      <div className="space-y-3">
-        <label className="flex items-center gap-2 cursor-pointer">
+      <div className="space-y-2.5">
+        <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
           <input
             type="checkbox"
             checked={quoted}
             onChange={(e) => setQuoted(e.target.checked)}
-            className="w-4 h-4 text-vq-primary focus:ring-vq-primary rounded"
+            className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2 rounded"
           />
           <span className="text-sm">
             Fields may be quoted (double quotes)
           </span>
         </label>
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
           <input
             type="checkbox"
             checked={expectCrlf}
             onChange={(e) => setExpectCrlf(e.target.checked)}
-            className="w-4 h-4 text-vq-primary focus:ring-vq-primary rounded"
+            className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2 rounded"
           />
           <span className="text-sm">
             Expect CRLF line endings (Windows)
@@ -251,20 +252,37 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
       </div>
 
       {/* Submit Button */}
-      <button
-        type="submit"
-        disabled={!file || uploading}
-        className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-      >
-        {uploading ? (
-          <>
-            <span className="spinner"></span>
-            <span>Uploading...</span>
-          </>
-        ) : (
-          <span>Start Profiling</span>
-        )}
-      </button>
+      <div className="pt-2">
+        <button
+          type="submit"
+          disabled={!file || uploading}
+          className="btn-primary flex items-center justify-center gap-2 min-w-[160px]"
+        >
+          {uploading ? (
+            <>
+              <span className="spinner"></span>
+              <span>Uploading...</span>
+            </>
+          ) : (
+            <>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+              <span>Start Profiling</span>
+            </>
+          )}
+        </button>
+      </div>
     </form>
   );
 }

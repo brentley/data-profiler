@@ -14,8 +14,8 @@ WORKDIR /build
 # Copy package files
 COPY web/package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
+# Install ALL dependencies (including dev dependencies needed for build)
+RUN npm ci && \
     npm cache clean --force
 
 # Copy source code
@@ -36,26 +36,27 @@ ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG VERSION=dev
 
-# Set environment variables for metadata
+WORKDIR /app
+
+# Install dependencies (including vite for preview server)
+# IMPORTANT: Install BEFORE setting NODE_ENV=production to include devDependencies
+COPY web/package*.json ./
+RUN npm ci && \
+    npm cache clean --force
+
+# Set environment variables for metadata (after npm install)
 ENV GIT_COMMIT=${GIT_COMMIT} \
     BUILD_DATE=${BUILD_DATE} \
     VERSION=${VERSION} \
     NODE_ENV=production
-
-WORKDIR /app
-
-# Install production dependencies only
-COPY web/package*.json ./
-RUN npm ci --only=production && \
-    npm cache clean --force
 
 # Copy built application from builder
 COPY --from=builder /build/dist ./dist
 COPY --from=builder /build/vite.config.ts ./
 
 # Create non-root user for security
-RUN addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser appuser && \
+RUN addgroup -g 10001 appuser && \
+    adduser -D -u 10001 -G appuser appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
