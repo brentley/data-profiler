@@ -42,6 +42,38 @@ class DistinctCountResult:
     spill_file_path: Optional[Path] = None
     is_exact: bool = True
 
+    @property
+    def duplicate_count(self) -> int:
+        """
+        Number of duplicate values (total_count - distinct_count - null_count).
+
+        This represents how many values are duplicates of already-seen values.
+        """
+        return max(0, self.total_count - self.distinct_count - self.null_count)
+
+    @property
+    def distinct_ratio(self) -> float:
+        """
+        Ratio of distinct values to total values (alias for cardinality_ratio).
+
+        This is an alias property for backward compatibility with tests that
+        expect distinct_ratio instead of cardinality_ratio.
+
+        Returns:
+            Float between 0.0 and 1.0 representing the ratio of distinct values
+        """
+        return self.cardinality_ratio
+
+    @property
+    def used_sqlite(self) -> bool:
+        """Whether SQLite storage was used."""
+        return self.storage_method == "sqlite"
+
+    @property
+    def top_values(self) -> List[Tuple[str, int]]:
+        """Get top 10 most frequent values (alias for get_top_n(10))."""
+        return self.get_top_n(10)
+
     def get_top_n(self, n: int = 10) -> List[Tuple[str, int]]:
         """
         Get top N most frequent values.
@@ -74,7 +106,10 @@ class DistinctCounter:
         use_sqlite: bool = False,
         cleanup: bool = False,
         case_sensitive: bool = True,
-        trim_whitespace: bool = True
+        trim_whitespace: bool = True,
+        memory_threshold: Optional[int] = None,
+        work_dir: Optional[str] = None,
+        column_name: Optional[str] = None
     ):
         """
         Initialize distinct counter.
@@ -84,13 +119,206 @@ class DistinctCounter:
             cleanup: Automatically clean up temporary SQLite files
             case_sensitive: Treat values as case-sensitive (default: True)
             trim_whitespace: Trim leading/trailing whitespace (default: True)
+            memory_threshold: Auto-spill to SQLite if value count exceeds threshold
+            work_dir: Directory for temporary SQLite files (default: system temp)
+            column_name: Optional column name for multi-column tracking
         """
         self.use_sqlite = use_sqlite
         self.cleanup_on_exit = cleanup
         self.case_sensitive = case_sensitive
         self.trim_whitespace = trim_whitespace
+        self.memory_threshold = memory_threshold
+        self.work_dir = Path(work_dir) if work_dir else None
+        self.column_name = column_name
         self._temp_db_path: Optional[Path] = None
         self._connection: Optional[sqlite3.Connection] = None
+        self._value_count: int = 0  # Track values to check against memory_threshold
+
+        # Streaming API state
+        self._frequencies: Dict[str, int] = {}  # In-memory frequencies for streaming
+        self._total_count: int = 0  # Total values processed
+        self._null_count: int = 0  # Null values processed
+        self._empty_count: int = 0  # Empty string values processed
+
+    def add_batch(self, values: List[str]) -> None:
+        """
+        Add a batch of values for counting.
+
+        This method allows streaming/incremental counting by adding values
+        in batches. Call finalize() to get results.
+
+        Args:
+            values: List of values to add to the counter
+        """
+        # Initialize storage if needed
+        if self.use_sqlite and self._connection is None:
+            self._init_sqlite_storage()
+
+        for value in values:
+            self._total_count += 1
+
+            # Handle null/empty values
+            if value is None or value == '':
+                self._null_count += 1
+                continue
+
+            # Check for quoted empty string
+            if value == '""':
+                self._empty_count += 1
+                continue
+
+            # Apply transformations
+            if self.trim_whitespace:
+                value = value.strip()
+
+            if not self.case_sensitive:
+                value = value.lower()
+
+            # Check if we need to spill to SQLite due to memory threshold
+            if (not self.use_sqlite and
+                self.memory_threshold is not None and
+                self._value_count >= self.memory_threshold):
+                # Spill to SQLite - migrate existing frequencies
+                self._init_sqlite_storage()
+                for freq_val, freq_count in self._frequencies.items():
+                    for _ in range(freq_count):
+                        self._insert_or_increment_sqlite(freq_val)
+                self._frequencies = {}  # Clear memory
+                self.use_sqlite = True
+
+            # Count value
+            if self.use_sqlite:
+                self._insert_or_increment_sqlite(value)
+            else:
+                self._frequencies[value] = self._frequencies.get(value, 0) + 1
+
+            self._value_count += 1
+
+    def finalize(self) -> DistinctCountResult:
+        """
+        Finalize streaming counting and return results.
+
+        This method should be called after all batches have been added via add_batch().
+        It computes the final distinct counts and returns the result.
+
+        Returns:
+            DistinctCountResult with exact counts and frequencies
+        """
+        # Get final frequencies
+        if self.use_sqlite:
+            frequencies = self._get_all_frequencies_sqlite()
+            # Commit any pending transactions
+            if self._connection:
+                self._connection.commit()
+        else:
+            frequencies = self._frequencies
+
+        distinct_count = len(frequencies)
+
+        # Calculate cardinality ratio based on non-null values
+        non_null_count = self._total_count - self._null_count
+        cardinality_ratio = distinct_count / non_null_count if non_null_count > 0 else 0.0
+
+        return DistinctCountResult(
+            distinct_count=distinct_count,
+            total_count=self._total_count,
+            null_count=self._null_count,
+            empty_count=self._empty_count,
+            cardinality_ratio=cardinality_ratio,
+            frequencies=frequencies,
+            storage_method="sqlite" if self.use_sqlite else "memory",
+            spill_file_path=self._temp_db_path,
+            is_exact=True
+        )
+
+    def count_distinct(self, values: List[str]) -> DistinctCountResult:
+        """
+        Count distinct values in a list.
+
+        This is the original method signature for backward compatibility.
+
+        Args:
+            values: List of values to analyze
+
+        Returns:
+            DistinctCountResult with exact counts and frequencies
+        """
+        # Initialize storage if needed
+        if self.use_sqlite:
+            self._init_sqlite_storage()
+
+        frequencies: Dict[str, int] = {}
+        null_count = 0
+        empty_count = 0
+        total_count = len(values)
+        spilled_to_sqlite = False
+
+        # Process values
+        for value in values:
+            # Handle null/empty values
+            if value is None or value == '':
+                null_count += 1
+                continue
+
+            # Check for quoted empty string
+            if value == '""':
+                empty_count += 1
+                continue
+
+            # Apply transformations
+            if self.trim_whitespace:
+                value = value.strip()
+
+            if not self.case_sensitive:
+                value = value.lower()
+
+            # Check if we need to spill to SQLite due to memory threshold
+            if (not self.use_sqlite and
+                self.memory_threshold is not None and
+                self._value_count >= self.memory_threshold and
+                not spilled_to_sqlite):
+                # Spill to SQLite
+                self._init_sqlite_storage()
+                # Migrate existing frequencies to SQLite
+                for freq_val, freq_count in frequencies.items():
+                    for _ in range(freq_count):
+                        self._insert_or_increment_sqlite(freq_val)
+                frequencies = {}  # Clear memory
+                self.use_sqlite = True
+                spilled_to_sqlite = True
+
+            # Count value
+            if self.use_sqlite:
+                self._insert_or_increment_sqlite(value)
+            else:
+                frequencies[value] = frequencies.get(value, 0) + 1
+
+            self._value_count += 1
+
+        # Get results
+        if self.use_sqlite:
+            frequencies = self._get_all_frequencies_sqlite()
+            # Commit any pending transactions before returning
+            if self._connection:
+                self._connection.commit()
+
+        distinct_count = len(frequencies)
+
+        # Calculate cardinality ratio based on non-null values
+        non_null_count = total_count - null_count
+        cardinality_ratio = distinct_count / non_null_count if non_null_count > 0 else 0.0
+
+        return DistinctCountResult(
+            distinct_count=distinct_count,
+            total_count=total_count,
+            null_count=null_count,
+            empty_count=empty_count,
+            cardinality_ratio=cardinality_ratio,
+            frequencies=frequencies,
+            storage_method="sqlite" if self.use_sqlite else "memory",
+            spill_file_path=self._temp_db_path,
+            is_exact=True
+        )
 
     def count_distincts(
         self,
@@ -161,7 +389,10 @@ class DistinctCounter:
                 self._connection.commit()
 
         distinct_count = len(frequencies)
-        cardinality_ratio = distinct_count / total_count if total_count > 0 else 0.0
+
+        # Calculate cardinality ratio based on non-null values
+        non_null_count = total_count - null_count
+        cardinality_ratio = distinct_count / non_null_count if non_null_count > 0 else 0.0
 
         return DistinctCountResult(
             distinct_count=distinct_count,
@@ -181,7 +412,16 @@ class DistinctCounter:
             return  # Already initialized
 
         # Create temporary database file
-        fd, temp_path = tempfile.mkstemp(suffix='.db', prefix='distincts_')
+        if self.work_dir:
+            # Use specified work directory
+            fd, temp_path = tempfile.mkstemp(
+                suffix='.db',
+                prefix='distincts_',
+                dir=str(self.work_dir)
+            )
+        else:
+            # Use system temp directory
+            fd, temp_path = tempfile.mkstemp(suffix='.db', prefix='distincts_')
         self._temp_db_path = Path(temp_path)
 
         # Connect to database

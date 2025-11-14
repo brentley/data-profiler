@@ -7,6 +7,7 @@ This module implements the FastAPI routes for profiling run management.
 import csv
 import json
 import gzip
+import os
 import tempfile
 from datetime import datetime
 from io import BytesIO, StringIO
@@ -62,7 +63,7 @@ def get_workspace() -> WorkspaceManager:
     """Get or create workspace manager."""
     global _workspace
     if _workspace is None:
-        work_dir = Path("/data/work")
+        work_dir = Path(os.getenv("WORK_DIR", "/data/work"))
         _workspace = WorkspaceManager(work_dir)
     return _workspace
 
@@ -71,7 +72,7 @@ def get_audit_logger() -> AuditLogger:
     """Get or create audit logger."""
     global _audit_logger
     if _audit_logger is None:
-        output_dir = Path("/data/outputs")
+        output_dir = Path(os.getenv("OUTPUT_DIR", "/data/outputs"))
         _audit_logger = AuditLogger(output_dir)
     return _audit_logger
 
@@ -80,6 +81,12 @@ def set_workspace(workspace_manager: WorkspaceManager):
     """Set workspace manager (for testing)."""
     global _workspace
     _workspace = workspace_manager
+
+
+def set_audit_logger(audit_logger: AuditLogger):
+    """Set audit logger (for testing)."""
+    global _audit_logger
+    _audit_logger = audit_logger
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -544,12 +551,12 @@ async def process_file(
                 audit_logger.log_error(run_id=run_id, error_code=error_code, count=count)
 
         # Log parsing completion with counts (NO VALUES)
-        column_count = len(header_result.header) if header_result else 0
+        column_count = len(header_result.headers) if header_result else 0
         audit_logger.log_parsing_completed(
             run_id=run_id,
             row_count=row_count,
             column_count=column_count,
-            header_names=header_result.header if header_result else [],
+            header_names=header_result.headers if header_result else [],
             error_rollup=error_rollup
         )
 
@@ -1090,7 +1097,7 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
     )
 
     # Save profile to outputs directory
-    outputs_dir = Path("/data/outputs") / str(run_id)
+    outputs_dir = Path(os.getenv("OUTPUT_DIR", "/data/outputs")) / str(run_id)
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
     profile_path = outputs_dir / "profile.json"

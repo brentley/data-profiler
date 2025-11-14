@@ -18,11 +18,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
-def api_client():
-    """Create test client for API."""
-    from api.app import app
-    return TestClient(app)
+# Note: api_client fixture is defined in conftest.py
 
 
 class TestAPIEndpoints:
@@ -33,7 +29,10 @@ class TestAPIEndpoints:
         response = api_client.get("/healthz")
 
         assert response.status_code == 200
-        assert response.json() == {"status": "OK"}
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "timestamp" in data
+        assert "version" in data
 
     def test_create_run(self, api_client):
         """Test creating a new profiling run."""
@@ -280,10 +279,10 @@ class TestAPIEndpoints:
         import time
         time.sleep(1)
 
-        # Confirm keys
+        # Confirm keys (keys is a flat list of column names, not nested arrays)
         response = api_client.post(
             f"/runs/{run_id}/confirm-keys",
-            json={"keys": [["ID"], ["ID", "Name"]]}
+            json={"keys": ["ID", "Name"]}
         )
 
         assert response.status_code == 202
@@ -304,7 +303,7 @@ class TestAPIEndpoints:
 
         response = api_client.post(
             f"/runs/{run_id}/confirm-keys",
-            json={"keys": [["NonExistentColumn"]]}
+            json={"keys": ["NonExistentColumn"]}
         )
 
         assert response.status_code == 400

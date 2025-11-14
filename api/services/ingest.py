@@ -5,7 +5,7 @@ This module provides streaming UTF-8 validation for uploaded files.
 """
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from io import StringIO, TextIOWrapper
 from typing import BinaryIO, Optional, Iterator, List
@@ -38,6 +38,32 @@ class LineEndingResult:
     crlf_count: int = 0
     lf_count: int = 0
     cr_count: int = 0
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def detected_style(self) -> str:
+        """Alias for original_style for backward compatibility."""
+        return self.original_style
+
+    @property
+    def has_mixed(self) -> bool:
+        """Alias for mixed for backward compatibility."""
+        return self.mixed
+
+    @property
+    def lf_only_count(self) -> int:
+        """Alias for lf_count for backward compatibility."""
+        return self.lf_count
+
+    @property
+    def cr_only_count(self) -> int:
+        """Alias for cr_count for backward compatibility."""
+        return self.cr_count
+
+    @property
+    def total_lines(self) -> int:
+        """Total line count (sum of all line ending types)."""
+        return self.crlf_count + self.lf_count + self.cr_count
 
     def to_audit_dict(self) -> dict:
         """Convert to dictionary for audit trail."""
@@ -352,7 +378,7 @@ class CRLFDetector:
         # Determine predominant style
         if sample_count == 0:
             style = LineEndingStyle.UNKNOWN
-            original_style = "UNKNOWN"
+            original_style = "NONE"
         elif crlf_count > lf_count and crlf_count > cr_count:
             style = LineEndingStyle.CRLF
             original_style = "CRLF"
@@ -375,7 +401,7 @@ class CRLFDetector:
                 original_style = "CR"
         else:
             style = LineEndingStyle.UNKNOWN
-            original_style = "UNKNOWN"
+            original_style = "NONE"
 
         # Check if mixed
         endings_present = sum([
@@ -385,6 +411,13 @@ class CRLFDetector:
         ])
         mixed = endings_present > 1
 
+        # Generate warnings for mixed line endings
+        warnings = []
+        if mixed:
+            warnings.append(
+                f"Mixed line endings detected: {crlf_count} CRLF, {lf_count} LF, {cr_count} CR"
+            )
+
         return LineEndingResult(
             style=style,
             original_style=original_style,
@@ -392,7 +425,8 @@ class CRLFDetector:
             sample_count=sample_count,
             crlf_count=crlf_count,
             lf_count=lf_count,
-            cr_count=cr_count
+            cr_count=cr_count,
+            warnings=warnings
         )
 
     def normalize(self) -> bytes:

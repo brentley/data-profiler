@@ -8,6 +8,10 @@ Requirements from spec:
 - Score = (distinct_ratio * (1 - null_ratio_sum)) with tie-breakers
 - Suggest top K candidates (e.g., 5)
 - User confirms/rejects suggestions before duplicate check
+
+Note: The actual implementation uses CandidateKeyAnalyzer which works with pre-computed
+statistics rather than CSV files directly. These tests need to be adapted to work with
+the column statistics that come from the profiling phase.
 """
 import pytest
 from pathlib import Path
@@ -18,7 +22,7 @@ class TestCandidateKeys:
 
     def test_suggest_single_column_key(self, temp_dir: Path):
         """Test suggestion of single column as candidate key."""
-        from api.services.keys import CandidateKeyFinder
+        from api.services.keys import CandidateKeyAnalyzer
 
         csv_path = temp_dir / "single_key.csv"
         csv_path.write_text(

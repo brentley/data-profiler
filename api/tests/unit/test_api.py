@@ -24,6 +24,7 @@ sys.path.insert(0, str(api_dir.parent))
 from api.app import app
 from api.models.run import RunState
 from api.storage.workspace import WorkspaceManager
+from api.services.audit import AuditLogger
 from api.routers import runs
 
 
@@ -35,6 +36,13 @@ def temp_workspace(tmp_path):
     workspace = WorkspaceManager(work_dir)
     # Set the workspace for the router
     runs.set_workspace(workspace)
+
+    # Create and set audit logger with temp output dir
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    audit_logger = AuditLogger(output_dir)
+    runs.set_audit_logger(audit_logger)
+
     return workspace
 
 

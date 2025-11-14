@@ -16,9 +16,22 @@ import csv
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from collections import Counter
+
+
+class ColumnType(Enum):
+    """Column type enumeration."""
+    ALPHA = "alpha"
+    VARCHAR = "varchar"
+    CODE = "code"
+    NUMERIC = "numeric"
+    MONEY = "money"
+    DATE = "date"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -33,6 +46,19 @@ class ColumnTypeInfo:
     cardinality_ratio: float = 0.0  # distinct_count / total_count
     distinct_values: Set[str] = field(default_factory=set)
     sample_values: List[str] = field(default_factory=list)
+    confidence: float = 0.0  # Confidence level (0-1)
+    invalid_count: int = 0  # Alias for error_count
+    out_of_range_count: int = 0  # For dates: year out of range warnings
+    distinct_ratio: float = 0.0  # Alias for cardinality_ratio
+
+    def __post_init__(self):
+        """Set up aliases for backward compatibility."""
+        # invalid_count is an alias for error_count
+        if self.invalid_count == 0 and self.error_count > 0:
+            self.invalid_count = self.error_count
+        # distinct_ratio is an alias for cardinality_ratio
+        if self.distinct_ratio == 0.0 and self.cardinality_ratio > 0.0:
+            self.distinct_ratio = self.cardinality_ratio
 
 
 @dataclass
@@ -71,14 +97,77 @@ class TypeInferrer:
     MAX_CODE_DISTINCT = 50  # Maximum distinct values for code type
     MIN_SAMPLE_FOR_CODE = 6  # Minimum sample size to classify as code
 
-    def __init__(self, sample_size: Optional[int] = None):
+    def __init__(self, sample_size: Optional[int] = None, type_hint: Optional[ColumnType] = None):
         """
         Initialize type inferrer.
 
         Args:
             sample_size: If set, only sample this many rows for inference
+            type_hint: Optional type hint to guide inference
         """
         self.sample_size = sample_size
+        self.type_hint = type_hint
+
+    def infer_type(self, values: List[str]) -> ColumnTypeInfo:
+        """
+        Infer type from a list of values.
+
+        This is a convenience method for testing and direct value analysis.
+
+        Args:
+            values: List of string values to analyze
+
+        Returns:
+            ColumnTypeInfo with inferred type and statistics
+        """
+        # Create a ColumnTypeInfo object to collect statistics
+        col_info = ColumnTypeInfo(inferred_type="unknown")
+
+        # Process values
+        for value in values:
+            if value is None:
+                value = ""
+            value = str(value).strip()
+
+            # Track null values
+            if not value:
+                col_info.null_count += 1
+                continue
+
+            # Track distinct values
+            col_info.distinct_values.add(value)
+
+            # Store sample values (limited to 100)
+            if len(col_info.sample_values) < 100:
+                col_info.sample_values.append(value)
+
+        # Calculate cardinality ratio
+        total_values = len(col_info.sample_values)
+        total_count = total_values + col_info.null_count
+
+        if total_count > 0:
+            col_info.cardinality_ratio = len(col_info.distinct_values) / total_count
+            col_info.distinct_ratio = col_info.cardinality_ratio
+
+        # Detect type
+        if total_values > 0:
+            col_info.inferred_type = self._detect_type(col_info)
+
+            # Calculate confidence based on type matches
+            confidence = self._calculate_confidence(col_info)
+            col_info.confidence = confidence
+
+            # Set invalid_count as alias for error_count
+            col_info.invalid_count = col_info.error_count
+
+            # For date columns, check for out-of-range years
+            if col_info.inferred_type == "date":
+                col_info.out_of_range_count = self._count_date_range_warnings(col_info.sample_values)
+        else:
+            col_info.inferred_type = "unknown"
+            col_info.confidence = 0.0
+
+        return col_info
 
     def infer_column_types(
         self,
@@ -531,6 +620,91 @@ class TypeInferrer:
                 violations += 1
 
         return violations
+
+    def _calculate_confidence(self, col_info: ColumnTypeInfo) -> float:
+        """
+        Calculate confidence level for inferred type.
+
+        Args:
+            col_info: Column information with inferred type
+
+        Returns:
+            Confidence level (0-1)
+        """
+        if not col_info.sample_values:
+            return 0.0
+
+        total = len(col_info.sample_values)
+        matches = 0
+
+        inferred_type = col_info.inferred_type
+
+        # Count how many values match the inferred type
+        for value in col_info.sample_values:
+            if inferred_type == "numeric":
+                if self._is_numeric(value) or self._is_numeric_like_with_violations(value):
+                    matches += 1
+            elif inferred_type == "money":
+                if self._is_money(value) or self._is_money_like_with_violations(value):
+                    matches += 1
+            elif inferred_type == "date":
+                if self._detect_date_format(value):
+                    matches += 1
+            elif inferred_type == "alpha":
+                if self._is_alpha(value):
+                    matches += 1
+            elif inferred_type in ["varchar", "code"]:
+                # String types - always match if not another type
+                if not (self._is_numeric(value) or self._is_money(value) or
+                       self._detect_date_format(value)):
+                    matches += 1
+            elif inferred_type == "mixed":
+                # Mixed type has lower confidence by definition
+                matches = int(total * 0.6)  # 60% confidence for mixed
+            elif inferred_type == "unknown":
+                return 0.0
+
+        return matches / total if total > 0 else 0.0
+
+    def _count_date_range_warnings(self, values: List[str]) -> int:
+        """
+        Count dates with years outside reasonable range.
+
+        Args:
+            values: List of date values
+
+        Returns:
+            Number of dates with out-of-range years
+        """
+        from datetime import datetime
+
+        warnings = 0
+        current_year = datetime.now().year
+        min_year = 1900
+        max_year = current_year + 1
+
+        for value in values:
+            date_format = self._detect_date_format(value)
+            if not date_format:
+                continue
+
+            # Extract year based on format
+            try:
+                if date_format == "YYYYMMDD":
+                    year = int(value[:4])
+                elif date_format in ["YYYY-MM-DD", "YYYY/MM/DD"]:
+                    year = int(value[:4])
+                elif date_format in ["MM/DD/YYYY", "MM-DD-YYYY"]:
+                    year = int(value[-4:])
+                else:
+                    continue
+
+                if year < min_year or year > max_year:
+                    warnings += 1
+            except (ValueError, IndexError):
+                continue
+
+        return warnings
 
 
 # ============================================================================
