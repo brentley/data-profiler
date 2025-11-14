@@ -12,7 +12,7 @@ import sqlite3
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -70,11 +70,11 @@ class DistinctCountResult:
         return self.storage_method == "sqlite"
 
     @property
-    def top_values(self) -> List[Tuple[str, int]]:
+    def top_values(self) -> List[Dict[str, Any]]:
         """Get top 10 most frequent values (alias for get_top_n(10))."""
         return self.get_top_n(10)
 
-    def get_top_n(self, n: int = 10) -> List[Tuple[str, int]]:
+    def get_top_n(self, n: int = 10) -> List[Dict[str, Any]]:
         """
         Get top N most frequent values.
 
@@ -82,14 +82,15 @@ class DistinctCountResult:
             n: Number of top values to return
 
         Returns:
-            List of (value, count) tuples sorted by count descending
+            List of dicts with 'value' and 'count' keys, sorted by count descending
         """
         sorted_items = sorted(
             self.frequencies.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        return sorted_items[:n]
+        # Convert tuples to dicts for API compatibility
+        return [{"value": value, "count": count} for value, count in sorted_items[:n]]
 
 
 class DistinctCounter:
@@ -499,8 +500,8 @@ class DistinctCounter:
         if self._temp_db_path is not None and self._temp_db_path.exists():
             try:
                 self._temp_db_path.unlink()
-            except Exception:
-                pass  # Best effort cleanup
+            except Exception:  # nosec B110 - intentional best-effort cleanup, errors are expected
+                pass  # Best effort cleanup - file may already be deleted
             finally:
                 self._temp_db_path = None
 
@@ -533,13 +534,13 @@ def create_column_table(db_path: Path, column_index: int) -> None:
             value TEXT PRIMARY KEY,
             cnt INTEGER NOT NULL DEFAULT 1
         )
-    """)
+    """)  # nosec B608 - table name derived from integer column_index, not user input
 
     # Create index for top-N queries
     cursor.execute(f"""
         CREATE INDEX IF NOT EXISTS idx_{table_name}_cnt
         ON {table_name}(cnt DESC)
-    """)
+    """)  # nosec B608 - table name derived from integer column_index, not user input
 
     conn.commit()
     conn.close()
@@ -566,12 +567,13 @@ def insert_or_increment(
     table_name = f"col_{column_index}_values"
 
     # Use parameterized query for value (not table name, which is constructed)
+    # Table name is safe: derived from integer column_index, not user input
     cursor.execute(f"""
         INSERT INTO {table_name} (value, cnt)
         VALUES (?, 1)
         ON CONFLICT(value)
         DO UPDATE SET cnt = cnt + 1
-    """, (value,))
+    """, (value,))  # nosec B608 - table name derived from integer column_index, not user input
 
     conn.commit()
     conn.close()
@@ -593,9 +595,10 @@ def get_distinct_count(db_path: Path, column_index: int) -> int:
 
     table_name = f"col_{column_index}_values"
 
+    # Table name is safe: derived from integer column_index, not user input
     cursor.execute(f"""
         SELECT COUNT(*) FROM {table_name}
-    """)
+    """)  # nosec B608 - table name derived from integer column_index, not user input
 
     count = cursor.fetchone()[0]
     conn.close()
@@ -625,12 +628,13 @@ def get_top_values(
     table_name = f"col_{column_index}_values"
 
     # Use index for efficient sorting
+    # Table name is safe: derived from integer column_index, not user input
     cursor.execute(f"""
         SELECT value, cnt
         FROM {table_name}
         ORDER BY cnt DESC
         LIMIT ?
-    """, (limit,))
+    """, (limit,))  # nosec B608 - table name derived from integer column_index, not user input
 
     results = cursor.fetchall()
     conn.close()

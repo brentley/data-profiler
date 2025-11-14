@@ -478,7 +478,7 @@ class DuplicateDetector:
         if self._temp_db_path is not None and self._temp_db_path.exists():
             try:
                 self._temp_db_path.unlink()
-            except Exception:
+            except Exception:  # nosec B110 - intentional best-effort cleanup, errors are expected
                 # Ignore errors if temp file already deleted
                 pass
             finally:
