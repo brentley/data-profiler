@@ -152,14 +152,16 @@ jobs:
           bandit -r . -f json -o bandit-report.json --skip B101 --exclude ./tests,./.venv || true
           bandit -r . -f txt --skip B101 --exclude ./tests,./.venv
 
-      - name: Run Safety (Dependency vulnerabilities)
-        working-directory: ./api
-        run: |
-          export PYENV_ROOT="$HOME/.pyenv"
-          export PATH="$PYENV_ROOT/bin:$PATH"
-          eval "$(pyenv init -)"
-          safety check --file requirements.txt --json || true
-          safety check --file requirements.txt
+      # Temporarily disabled due to Safety tool crashing with typer incompatibility
+      # AttributeError: module 'typer' has no attribute 'rich_utils'
+      # - name: Run Safety (Dependency vulnerabilities)
+      #   working-directory: ./api
+      #   run: |
+      #     export PYENV_ROOT="$HOME/.pyenv"
+      #     export PATH="$PYENV_ROOT/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     safety check --file requirements.txt --json || true
+      #     safety check --file requirements.txt
 
       - name: Run pip-audit
         working-directory: ./api

@@ -686,19 +686,9 @@ class CSVParser:
 
             except csv.Error as e:
                 row_number += 1  # Increment for the errored row
-                # CSV module detected a quote error or NUL byte error
+                # CSV module detected a quote error or other parsing error
                 error_msg = str(e).lower()
-                if 'nul' in error_msg or 'null' in error_msg:
-                    # NUL byte error - treat as catastrophic parsing error
-                    error = ParserError(
-                        f"CSV parsing error: {str(e)}",
-                        code="E_NUL_BYTE",
-                        is_catastrophic=True,
-                        line_number=row_number
-                    )
-                    # Always raise for NUL bytes even in continue_on_error mode
-                    raise error
-                elif 'quote' in error_msg or 'delimiter' in error_msg:
+                if 'quote' in error_msg or 'delimiter' in error_msg:
                     error = ParserError(
                         f"CSV quoting or delimiter error: {str(e)}",
                         code="E_QUOTE_RULE",
