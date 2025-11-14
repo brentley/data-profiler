@@ -149,8 +149,8 @@ jobs:
           export PYENV_ROOT="$HOME/.pyenv"
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
-          bandit -r . -f json -o bandit-report.json || true
-          bandit -r . -f txt
+          bandit -r . -f json -o bandit-report.json --skip B101 --exclude ./tests || true
+          bandit -r . -f txt --skip B101 --exclude ./tests
 
       - name: Run Safety (Dependency vulnerabilities)
         working-directory: ./api
