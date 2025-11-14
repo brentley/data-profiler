@@ -61,7 +61,8 @@ jobs:
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
           # Run all tests together for accurate coverage calculation
-          pytest tests/ --ignore=tests/performance -v --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+          # Explicitly exclude utility scripts from coverage
+          pytest tests/ --ignore=tests/performance -v --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=85 --omit="*/DOCSTRING_TEMPLATES.py,*/analyze_test_failures.py,*/verify_tests.py"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
