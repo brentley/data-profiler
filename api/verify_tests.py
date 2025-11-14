@@ -4,7 +4,7 @@ Test Verification Script for VQ8 Data Profiler
 Comprehensive test suite runner with detailed reporting
 """
 
-import subprocess
+import subprocess  # nosec B404 - Safe utility script for test verification
 import sys
 import json
 import time
@@ -61,7 +61,7 @@ class TestVerifier:
         print()
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 - Trusted static pytest command
                 cmd,
                 cwd=self.api_dir,
                 capture_output=True,
@@ -156,7 +156,7 @@ class TestVerifier:
             cmd = ["pytest", test_path, "-v", "--tb=line", "-q"]
 
             try:
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 - Trusted static pytest command
                     cmd,
                     cwd=self.api_dir,
                     capture_output=True,

@@ -4,7 +4,7 @@ Test Failure Analysis Script
 Analyzes pytest output to identify patterns and root causes
 """
 
-import subprocess
+import subprocess  # nosec B404 - Safe utility script for test analysis
 import sys
 import re
 from pathlib import Path
@@ -45,7 +45,7 @@ class TestFailureAnalyzer:
         ]
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 - Trusted static pytest command
                 cmd,
                 cwd=self.api_dir,
                 capture_output=True,
