@@ -60,7 +60,7 @@ jobs:
           export PYENV_ROOT="$HOME/.pyenv"
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
-          pytest tests/ --ignore=tests/performance -v --cov=. --cov-report=xml --cov-report=term-missing -m "not integration"
+          pytest tests/ --ignore=tests/performance -v --cov=. --cov-report=xml --cov-report=term-missing --no-cov-on-fail -m "not integration"
 
       - name: Run integration tests
         working-directory: ./api
@@ -68,7 +68,16 @@ jobs:
           export PYENV_ROOT="$HOME/.pyenv"
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
-          pytest tests/ --ignore=tests/performance -v --cov=. --cov-append --cov-report=xml -m integration
+          pytest tests/ --ignore=tests/performance -v --cov=. --cov-append --cov-report=xml --cov-report=term-missing --no-cov-on-fail -m integration
+
+      - name: Check combined coverage threshold
+        working-directory: ./api
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          # Check that combined coverage meets 85% threshold
+          coverage report --fail-under=85
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

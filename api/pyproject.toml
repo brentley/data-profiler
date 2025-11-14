@@ -53,8 +53,7 @@ addopts = [
     "--cov=storage",
     "--cov=models",
     "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-fail-under=85"
+    "--cov-report=html"
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
