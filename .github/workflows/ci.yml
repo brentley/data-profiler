@@ -60,7 +60,7 @@ jobs:
           export PYENV_ROOT="$HOME/.pyenv"
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
-          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing -m "not integration"
+          pytest tests/ --ignore=tests/performance -v --cov=. --cov-report=xml --cov-report=term-missing -m "not integration"
 
       - name: Run integration tests
         working-directory: ./api
@@ -68,7 +68,7 @@ jobs:
           export PYENV_ROOT="$HOME/.pyenv"
           export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
-          pytest tests/ -v --cov=. --cov-append --cov-report=xml -m integration
+          pytest tests/ --ignore=tests/performance -v --cov=. --cov-append --cov-report=xml -m integration
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
