@@ -570,7 +570,7 @@ class ProfilePipeline:
         audit_path = self.output_dir / 'audit.log.json'
         audit_log = {
             'run_id': self.run_id,
-            'timestamp': datetime.datetime.now(datetime.UTC).isoformat(),
+            'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'input_file': str(self.input_path),
             'workspace': str(self.workspace),
             'config': self.config,
