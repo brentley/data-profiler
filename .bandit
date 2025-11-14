@@ -1,0 +1,4 @@
+exclude_dirs:
+  - tests
+  - api/tests
+  - web/tests
