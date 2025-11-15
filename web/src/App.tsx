@@ -5,10 +5,11 @@ import { useToast } from './hooks/useToast';
 import { ToastContainer } from './components/Toast';
 import { UploadForm } from './components/UploadForm';
 import { RunStatus } from './components/RunStatus';
+import { RunHistory } from './components/RunHistory';
 import { FileSummary } from './components/FileSummary';
 import { ErrorRollup } from './components/ErrorRollup';
 import { CandidateKeys } from './components/CandidateKeys';
-import { ColumnCard } from './components/ColumnCard';
+import { ColumnTable } from './components/ColumnTable';
 import { Downloads } from './components/Downloads';
 import { api } from './utils/api';
 import type { Profile } from './types/api';
@@ -74,6 +75,25 @@ function App() {
     setProfile(null);
   };
 
+  const handleSelectHistoricRun = async (runId: string) => {
+    setCurrentRunId(runId);
+    setLoading(true);
+    try {
+      const profileData = await api.getProfile(runId);
+      setProfile(profileData);
+      setAppState('results');
+      info('Run Loaded', 'Historical run data has been loaded successfully.');
+    } catch (err) {
+      error(
+        'Failed to Load Run',
+        err instanceof Error ? err.message : 'Please try again.'
+      );
+      setAppState('upload');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
       {/* Header */}
@@ -83,7 +103,9 @@ function App() {
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-9 h-9 sm:w-10 sm:h-10 bg-vq-primary rounded-lg flex items-center justify-center flex-shrink-0">
                 <svg
-                  className="w-5 h-5 sm:w-6 sm:h-6 text-white"
+                  className="w-5 h-5 sm:w-6 sm:h-6 text-white flex-shrink-0"
+                  width="20"
+                  height="20"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -111,7 +133,7 @@ function App() {
               {appState === 'results' && (
                 <button
                   onClick={handleReset}
-                  className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-vq-primary dark:hover:text-vq-primary transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700"
+                  className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-vq-accent hover:text-orange-600 dark:text-vq-accent dark:hover:text-orange-400 transition-colors rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20"
                 >
                   <span className="hidden sm:inline">New Upload</span>
                   <span className="sm:hidden">New</span>
@@ -123,7 +145,7 @@ function App() {
                 aria-label="Toggle theme"
               >
                 {theme === 'dark' ? (
-                  <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-5 h-5 text-yellow-500 flex-shrink-0" width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                     <path
                       fillRule="evenodd"
                       d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
@@ -131,7 +153,7 @@ function App() {
                     />
                   </svg>
                 ) : (
-                  <svg className="w-5 h-5 text-slate-700" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-5 h-5 text-slate-700 flex-shrink-0" width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
                   </svg>
                 )}
@@ -144,12 +166,19 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {appState === 'upload' && (
-          <div className="max-w-2xl mx-auto">
+          <div className="space-y-6">
+            {/* Run History */}
+            <RunHistory
+              onSelectRun={handleSelectHistoricRun}
+              onError={(msg) => error('Error', msg)}
+            />
+
+            {/* Upload Form */}
             <div className="card card-lg">
-              <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-gray-100">Upload Your Data File</h2>
+              <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-gray-100">Upload New File</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Upload a CSV or TXT file (optionally gzipped) to analyze its structure,
-                validate data quality, and generate detailed profiling reports.
+                Upload your CSV or TXT file (optionally gzipped) for automatic analysis.
+                File format, delimiter, and encoding will be detected automatically.
               </p>
               <UploadForm
                 onUploadStart={handleUploadStart}
@@ -158,10 +187,10 @@ function App() {
             </div>
 
             {/* Features */}
-            <div className="mt-6 grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               <div className="card text-center p-6">
-                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-vq-primary rounded-lg flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-vq-primary rounded-lg flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-5 h-5 flex-shrink-0" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
@@ -172,8 +201,8 @@ function App() {
               </div>
 
               <div className="card text-center p-6">
-                <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-5 h-5 flex-shrink-0" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
@@ -184,8 +213,8 @@ function App() {
               </div>
 
               <div className="card text-center p-6">
-                <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 text-vq-accent rounded-lg flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-5 h-5 flex-shrink-0" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
                 </div>
@@ -232,11 +261,7 @@ function App() {
               <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
                 Column Profiles
               </h2>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {profile.columns.map((column, index) => (
-                  <ColumnCard key={index} column={column} index={index} />
-                ))}
-              </div>
+              <ColumnTable columns={profile.columns} totalRows={profile.file.rows} />
             </div>
 
             {/* Downloads */}

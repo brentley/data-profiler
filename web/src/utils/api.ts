@@ -73,6 +73,11 @@ export const api = {
     return fetchApi('/healthz');
   },
 
+  // List recent profiling runs
+  async listRuns(limit: number = 20): Promise<RunStatus[]> {
+    return fetchApi(`/runs?limit=${limit}`);
+  },
+
   // Create a new profiling run
   async createRun(request: CreateRunRequest): Promise<CreateRunResponse> {
     return fetchApi('/runs', {

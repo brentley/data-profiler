@@ -20,7 +20,7 @@ export interface ErrorItem {
 }
 
 export interface CreateRunRequest {
-  delimiter: '|' | ',';
+  delimiter?: '|' | ',' | null;
   quoted?: boolean;
   expect_crlf?: boolean;
 }
@@ -30,10 +30,17 @@ export interface CreateRunResponse {
 }
 
 export interface RunStatus {
+  run_id: string;
   state: RunState;
   progress_pct: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
   warnings: ErrorItem[];
   errors: ErrorItem[];
+  source_filename?: string;
+  row_count?: number;
+  column_count?: number;
 }
 
 export interface TopValue {
@@ -81,7 +88,7 @@ export interface DateStats {
 export interface ColumnProfile {
   name: string;
   type: ColumnType;
-  null_pct: number;
+  null_count: number;
   distinct_count: number;
   top_values: TopValue[];
   length?: LengthStats;
