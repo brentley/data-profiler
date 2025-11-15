@@ -200,10 +200,10 @@ Tests ensure user-friendly errors:
 ## Files Modified vs. Created
 
 ### New Test Files Created:
-1. `/Users/brent/git/data-profiler/tests/test_delimiter_detector.py` (NEW)
-2. `/Users/brent/git/data-profiler/tests/test_numeric_sanitization.py` (NEW)
-3. `/Users/brent/git/data-profiler/tests/test_delimiter_auto_detection_integration.py` (NEW)
-4. `/Users/brent/git/data-profiler/tests/test_user_friendly_errors.py` (NEW)
+1. `tests/test_delimiter_detector.py` (NEW)
+2. `tests/test_numeric_sanitization.py` (NEW)
+3. `tests/test_delimiter_auto_detection_integration.py` (NEW)
+4. `tests/test_user_friendly_errors.py` (NEW)
 
 ### Existing Files NOT Modified:
 - All new tests use existing fixtures from `conftest.py`
@@ -291,7 +291,7 @@ This ensures tests wait for processing without hardcoded delays.
 
 ### Real-World File Testing:
 One test attempts to use the actual problematic file:
-- Path: `/Users/brent/git/data-profiler/data/work/runs/6d88b926-945b-45aa-91a8-1f1fd69d3723/uploaded_file`
+- Path: `data/work/runs/{run_id}/uploaded_file`
 - Test skips if file not found (pytest.skip)
 - Validates that delimiter detection and extreme value handling work on real data
 
