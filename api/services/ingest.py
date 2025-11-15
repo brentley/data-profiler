@@ -448,6 +448,224 @@ class CRLFDetector:
         return normalized
 
 
+class DelimiterDetector:
+    """
+    Automatic delimiter detection using csv.Sniffer.
+
+    Analyzes a sample of the file to detect the most likely delimiter.
+    """
+
+    # Common delimiters to check
+    COMMON_DELIMITERS = [',', '|', '\t', ';']
+
+    def __init__(self, sample_size: int = 8192):
+        """
+        Initialize detector.
+
+        Args:
+            sample_size: Number of bytes to sample from the file (default 8KB)
+        """
+        self.sample_size = sample_size
+
+    def detect(self, content: bytes) -> tuple[str, float]:
+        """
+        Detect the delimiter from file content.
+
+        Args:
+            content: File content as bytes
+
+        Returns:
+            Tuple of (detected_delimiter, confidence_score)
+            confidence_score is between 0.0 and 1.0
+        """
+        # Take a sample from the beginning
+        sample = content[:self.sample_size].decode('utf-8', errors='ignore')
+
+        # Try csv.Sniffer first
+        try:
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample, delimiters=''.join(self.COMMON_DELIMITERS)).delimiter
+
+            # Verify the delimiter makes sense by checking consistency
+            lines = sample.split('\n')[:10]  # Check first 10 lines
+            if len(lines) > 1:
+                counts = [line.count(delimiter) for line in lines if line.strip()]
+                if counts and max(counts) > 0:
+                    # Calculate consistency (all lines should have similar delimiter counts)
+                    avg_count = sum(counts) / len(counts)
+                    variance = sum((c - avg_count) ** 2 for c in counts) / len(counts)
+                    consistency = max(0.0, 1.0 - (variance / (avg_count + 1)))
+
+                    # If consistency is perfect or near-perfect, use it
+                    if consistency > 0.95:
+                        return delimiter, consistency
+        except Exception:
+            pass  # Sniffer failed, fall back to manual detection
+
+        # Manual detection: count occurrences of each delimiter
+        delimiter_scores = {}
+        lines = sample.split('\n')[:10]
+
+        for delim in self.COMMON_DELIMITERS:
+            counts = [line.count(delim) for line in lines if line.strip()]
+            if not counts:
+                continue
+
+            # Check if counts are consistent across lines (perfect consistency)
+            if len(set(counts)) == 1 and counts[0] > 0:
+                # Perfect consistency and at least one delimiter per line
+                delimiter_scores[delim] = (counts[0], 1.0)
+            elif counts:
+                avg_count = sum(counts) / len(counts)
+                if avg_count > 0:
+                    # For files with many empty fields, use standard deviation relative to mean
+                    # This better handles CSVs where delimiter count is consistent but variance exists
+                    std_dev = (sum((c - avg_count) ** 2 for c in counts) / len(counts)) ** 0.5
+                    coefficient_of_variation = std_dev / avg_count if avg_count > 0 else 1.0
+
+                    # Perfect consistency = 1.0, increasing variation lowers score
+                    # CV of 0.0 = perfect consistency, CV of 1.0 = high variation
+                    consistency = max(0.0, 1.0 - min(1.0, coefficient_of_variation))
+
+                    delimiter_scores[delim] = (avg_count, consistency)
+
+        # Select delimiter with highest count and consistency
+        # Weight: favor high delimiter counts with good consistency
+        if delimiter_scores:
+            best_delim = max(
+                delimiter_scores.keys(),
+                key=lambda d: delimiter_scores[d][0] * delimiter_scores[d][1]
+            )
+            confidence = delimiter_scores[best_delim][1]
+
+            # If the best delimiter has perfect or near-perfect consistency, boost confidence
+            if len(set([line.count(best_delim) for line in lines if line.strip()])) == 1:
+                confidence = 1.0
+
+            return best_delim, confidence
+
+        # Default to comma if detection fails
+        return ',', 0.5
+
+
+class QuotingDetector:
+    """
+    Automatic quoting detection for CSV files.
+
+    Analyzes a sample of the file to determine if fields use double-quote escaping.
+    """
+
+    def __init__(self, sample_size: int = 8192):
+        """
+        Initialize detector.
+
+        Args:
+            sample_size: Number of bytes to sample from the file (default 8KB)
+        """
+        self.sample_size = sample_size
+
+    def detect(self, content: bytes, delimiter: str) -> tuple[bool, float]:
+        """
+        Detect if the file uses quoting.
+
+        Args:
+            content: File content as bytes
+            delimiter: The delimiter used in the CSV (needed for accurate detection)
+
+        Returns:
+            Tuple of (uses_quoting, confidence_score)
+            confidence_score is between 0.0 and 1.0
+        """
+        # Take a sample from the beginning
+        sample = content[:self.sample_size].decode('utf-8', errors='ignore')
+
+        # Split into lines (use first 20 lines for analysis)
+        lines = sample.split('\n')[:20]
+
+        # Count quote indicators
+        quote_indicators = 0
+        total_fields = 0
+        has_embedded_delimiters = False
+        has_embedded_newlines = False
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Count total fields (rough estimate)
+            field_count = line.count(delimiter) + 1
+            total_fields += field_count
+
+            # Check for quoted fields
+            # Pattern: "..." with possible embedded delimiters or quotes
+            if '"' in line:
+                quote_indicators += 1
+
+                # Check for escaped quotes (double quotes)
+                if '""' in line:
+                    quote_indicators += 1
+
+                # Check if delimiters appear inside quoted sections
+                # This is a strong indicator of quoting
+                in_quote = False
+                for i, char in enumerate(line):
+                    if char == '"':
+                        # Check if it's an escaped quote
+                        if i + 1 < len(line) and line[i + 1] == '"':
+                            continue
+                        in_quote = not in_quote
+                    elif char == delimiter and in_quote:
+                        has_embedded_delimiters = True
+                        quote_indicators += 2  # Strong signal
+
+        # No quotes found = likely unquoted
+        if quote_indicators == 0:
+            return False, 0.95
+
+        # Few quotes relative to fields = likely unquoted
+        if total_fields > 0 and quote_indicators / total_fields < 0.1:
+            return False, 0.75
+
+        # Many quotes and embedded delimiters = definitely quoted
+        if has_embedded_delimiters:
+            return True, 0.98
+
+        # Moderate quote usage = likely quoted
+        if total_fields > 0 and quote_indicators / total_fields > 0.2:
+            return True, 0.85
+
+        # Try to parse with both modes and see which works better
+        try:
+            # Try with quoting
+            quoted_errors = 0
+            try:
+                reader = csv.reader(StringIO(sample), delimiter=delimiter, quoting=csv.QUOTE_MINIMAL)
+                for row in reader:
+                    pass
+            except csv.Error:
+                quoted_errors += 1
+
+            # Try without quoting
+            unquoted_errors = 0
+            try:
+                reader = csv.reader(StringIO(sample), delimiter=delimiter, quoting=csv.QUOTE_NONE)
+                for row in reader:
+                    pass
+            except csv.Error:
+                unquoted_errors += 1
+
+            # If quoting works better, assume quoted
+            if quoted_errors < unquoted_errors:
+                return True, 0.70
+            elif unquoted_errors < quoted_errors:
+                return False, 0.70
+        except Exception:
+            pass  # Parsing test failed
+
+        # Default: assume quoted with moderate confidence
+        return True, 0.60
+
+
 @dataclass
 class ParserConfig:
     """Configuration for CSV parser."""
