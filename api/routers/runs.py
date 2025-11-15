@@ -147,7 +147,7 @@ async def list_runs(limit: int = 20) -> List[RunStatus]:
                                 column_count = len(headers)
                                 for _ in reader:
                                     row_count += 1
-                        except:
+                        except Exception:
                             # Fall back to column profile count
                             column_count = len(metadata.column_profiles)
 

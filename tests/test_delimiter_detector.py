@@ -4,7 +4,6 @@ Test suite for delimiter auto-detection.
 Tests the DelimiterDetector class which automatically identifies
 the delimiter used in CSV files.
 """
-import pytest
 from api.services.ingest import DelimiterDetector
 
 

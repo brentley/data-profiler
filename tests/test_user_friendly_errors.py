@@ -4,7 +4,6 @@ Test suite for user-friendly error messages.
 Tests that error messages returned to users are clear, actionable,
 and don't expose technical stack traces.
 """
-import pytest
 import time
 from pathlib import Path
 

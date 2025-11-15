@@ -6,7 +6,6 @@ they don't break JSON serialization.
 """
 import json
 import math
-import pytest
 from pathlib import Path
 
 

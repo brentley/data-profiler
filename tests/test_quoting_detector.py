@@ -4,7 +4,6 @@ Test suite for quoting auto-detection.
 Tests the QuotingDetector class which automatically identifies
 whether CSV files use double-quote escaping.
 """
-import pytest
 from api.services.ingest import QuotingDetector
 
 

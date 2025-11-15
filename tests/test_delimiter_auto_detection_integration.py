@@ -3,6 +3,7 @@ Integration tests for delimiter auto-detection in the full workflow.
 
 Tests that delimiter detection works end-to-end through the API.
 """
+import os
 import pytest
 import time
 from pathlib import Path
@@ -226,11 +227,20 @@ class TestDelimiterAutoDetectionIntegration:
         assert len(delimiter_warnings) > 0, "Expected delimiter mismatch warning"
 
     def test_real_world_file_with_auto_detection(self, api_client):
-        """Test auto-detection with the real problematic file."""
-        real_file_path = Path("/Users/brent/git/data-profiler/data/work/runs/6d88b926-945b-45aa-91a8-1f1fd69d3723/uploaded_file")
+        """Test auto-detection with the real problematic file.
 
+        Set TEST_DATA_FILE environment variable to point to a test file,
+        or this test will be skipped. Example:
+            export TEST_DATA_FILE=/path/to/test/file.csv
+        """
+        # Use environment variable or skip test
+        test_file_env = os.getenv('TEST_DATA_FILE')
+        if not test_file_env:
+            pytest.skip("TEST_DATA_FILE environment variable not set")
+
+        real_file_path = Path(test_file_env)
         if not real_file_path.exists():
-            pytest.skip("Real-world test file not found")
+            pytest.skip(f"Test file not found: {real_file_path}")
 
         # Create run (let auto-detection figure out delimiter)
         response = api_client.post("/runs", json={"delimiter": ","})  # Intentionally wrong

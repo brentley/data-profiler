@@ -521,7 +521,7 @@ class DelimiterDetector:
                     # For files with many empty fields, use standard deviation relative to mean
                     # This better handles CSVs where delimiter count is consistent but variance exists
                     std_dev = (sum((c - avg_count) ** 2 for c in counts) / len(counts)) ** 0.5
-                    coefficient_of_variation = std_dev / avg_count if avg_count > 0 else 1.0
+                    coefficient_of_variation = std_dev / avg_count
 
                     # Perfect consistency = 1.0, increasing variation lowers score
                     # CV of 0.0 = perfect consistency, CV of 1.0 = high variation
@@ -586,7 +586,6 @@ class QuotingDetector:
         quote_indicators = 0
         total_fields = 0
         has_embedded_delimiters = False
-        has_embedded_newlines = False
 
         for line in lines:
             if not line.strip():
