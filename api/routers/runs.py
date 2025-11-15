@@ -7,12 +7,13 @@ This module implements the FastAPI routes for profiling run management.
 import csv
 import json
 import gzip
+import math
 import os
 import tempfile
 from datetime import datetime
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -37,6 +38,8 @@ from ..models.run import (
 from ..services.ingest import (
     CRLFDetector,
     CSVParser,
+    DelimiterDetector,
+    QuotingDetector,
     ParserConfig,
     ParserError,
     UTF8Validator,
@@ -52,6 +55,7 @@ from ..services.profile import (
 )
 from ..services.distincts import DistinctCounter
 from ..services.audit import AuditLogger
+from ..services.report import generate_html_report
 from ..storage.workspace import WorkspaceManager
 
 # Workspace manager (initialized lazily)
@@ -91,6 +95,170 @@ def set_audit_logger(audit_logger: AuditLogger):
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+@router.get("", response_model=List[RunStatus])
+async def list_runs(limit: int = 20) -> List[RunStatus]:
+    """
+    List recent profiling runs.
+
+    Returns a list of recent runs sorted by creation time (newest first).
+    Each run includes basic metadata and current state.
+
+    Args:
+        limit: Maximum number of runs to return (default: 20, max: 100)
+
+    Returns:
+        List of RunStatus objects with run metadata
+
+    Raises:
+        HTTPException: If unable to list runs
+    """
+    try:
+        workspace = get_workspace()
+
+        # Limit max results for performance
+        limit = min(limit, 100)
+
+        # Get all run IDs
+        run_ids = workspace.list_runs()
+
+        # Load metadata for each run
+        runs = []
+        for run_id in run_ids:
+            metadata = workspace.load_metadata(run_id)
+            if metadata:
+                # Convert error/warning dicts to ErrorDetail models
+                warnings = [ErrorDetail(**w) for w in metadata.warnings]
+                errors = [ErrorDetail(**e) for e in metadata.errors]
+
+                # Get row count if available (from column profiles)
+                row_count = 0
+                column_count = 0
+                if metadata.column_profiles:
+                    # Try to read the normalized CSV to get accurate counts
+                    run_dir = workspace.get_run_dir(run_id)
+                    normalized_csv = run_dir / "normalized.csv"
+
+                    if normalized_csv.exists():
+                        try:
+                            with open(normalized_csv, 'r', encoding='utf-8') as f:
+                                import csv as csv_module
+                                reader = csv_module.DictReader(f, delimiter=metadata.delimiter)
+                                headers = reader.fieldnames or []
+                                column_count = len(headers)
+                                for _ in reader:
+                                    row_count += 1
+                        except Exception:
+                            # Fall back to column profile count
+                            column_count = len(metadata.column_profiles)
+
+                runs.append(RunStatus(
+                    run_id=metadata.run_id,
+                    state=metadata.state,
+                    progress_pct=metadata.progress_pct,
+                    created_at=metadata.created_at,
+                    started_at=metadata.started_at,
+                    completed_at=metadata.completed_at,
+                    warnings=warnings,
+                    errors=errors,
+                    column_profiles=metadata.column_profiles,
+                    # Additional fields for display
+                    source_filename=metadata.source_filename,
+                    row_count=row_count,
+                    column_count=column_count
+                ))
+
+        # Sort by created_at descending (newest first)
+        runs.sort(key=lambda r: r.created_at, reverse=True)
+
+        # Apply limit
+        runs = runs[:limit]
+
+        return runs
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list runs: {str(e)}"
+        )
+
+
+def sanitize_numeric_for_json(value: Any) -> Any:
+    """
+    Sanitize numeric values to be JSON-safe.
+
+    Converts inf/-inf/nan to None (null in JSON) to prevent JSON serialization errors.
+    Recursively handles dictionaries, lists, and nested structures.
+
+    Args:
+        value: Value to sanitize (can be any type)
+
+    Returns:
+        JSON-safe value with inf/nan replaced by None
+    """
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    elif isinstance(value, dict):
+        return {k: sanitize_numeric_for_json(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [sanitize_numeric_for_json(item) for item in value]
+    elif isinstance(value, tuple):
+        return tuple(sanitize_numeric_for_json(item) for item in value)
+    else:
+        return value
+
+
+def friendly_error_message(error_code: str, technical_msg: str) -> str:
+    """
+    Convert technical error messages to user-friendly guidance.
+
+    Args:
+        error_code: Error code (e.g., E_QUOTE_RULE)
+        technical_msg: Technical error message
+
+    Returns:
+        User-friendly error message with actionable advice
+    """
+    error_map = {
+        "E_QUOTE_RULE": (
+            "Your CSV file has quoting inconsistencies. This often happens when delimiters "
+            "appear inside unquoted fields. Try:\n"
+            "1. Ensure all fields containing delimiters are properly quoted\n"
+            "2. Check for unmatched quote characters\n"
+            "3. Verify the delimiter setting matches your file"
+        ),
+        "E_JAGGED_ROW": (
+            "Your CSV file has rows with inconsistent column counts. This usually means:\n"
+            "1. Some rows have extra or missing delimiters\n"
+            "2. The delimiter setting might be incorrect (try auto-detection)\n"
+            "3. There may be embedded line breaks in quoted fields"
+        ),
+        "E_HEADER_MISSING": (
+            "Could not read the CSV header row. Please check:\n"
+            "1. The file is not empty\n"
+            "2. The file has a valid header row\n"
+            "3. The delimiter setting is correct"
+        ),
+        "E_UTF8_INVALID": (
+            "The file contains invalid UTF-8 characters. To fix:\n"
+            "1. Save the file with UTF-8 encoding\n"
+            "2. Remove or replace non-UTF-8 characters\n"
+            "3. Check for binary data in the file"
+        ),
+        "E_UNQUOTED_DELIM": (
+            "Found unquoted delimiters inside fields. This can cause parsing issues. "
+            "Either:\n"
+            "1. Add quotes around fields containing delimiters\n"
+            "2. Try a different delimiter character"
+        ),
+    }
+
+    friendly = error_map.get(error_code)
+    if friendly:
+        return f"{friendly}\n\nTechnical details: {technical_msg}"
+    return technical_msg
+
+
 @router.post("", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
 async def create_run(run_config: RunCreate) -> RunResponse:
     """
@@ -112,18 +280,23 @@ async def create_run(run_config: RunCreate) -> RunResponse:
         workspace = get_workspace()
         audit_logger = get_audit_logger()
 
+        # Use placeholder values if not provided (will be auto-detected during upload)
+        delimiter = run_config.delimiter if run_config.delimiter is not None else ','
+        quoted = run_config.quoted if run_config.quoted is not None else True
+        expect_crlf = run_config.expect_crlf if run_config.expect_crlf is not None else True
+
         metadata = workspace.create_run(
-            delimiter=run_config.delimiter,
-            quoted=run_config.quoted,
-            expect_crlf=run_config.expect_crlf
+            delimiter=delimiter,
+            quoted=quoted,
+            expect_crlf=expect_crlf
         )
 
         # Log run creation
         audit_logger.log_run_created(
             run_id=metadata.run_id,
-            delimiter=run_config.delimiter,
-            quoted=run_config.quoted,
-            expect_crlf=run_config.expect_crlf
+            delimiter=delimiter,
+            quoted=quoted,
+            expect_crlf=expect_crlf
         )
 
         return RunResponse(
@@ -338,24 +511,24 @@ async def profile_columns(
             "distinct_pct": distinct_result.cardinality_ratio * 100.0,
         }
 
-        # Add type-specific stats
+        # Add type-specific stats (sanitize numeric values for JSON)
         if col_info.inferred_type == "numeric":
             profile.update({
-                "min": stats.min_value,
-                "max": stats.max_value,
-                "mean": stats.mean,
-                "median": stats.median,
-                "stddev": stats.stddev,
-                "quantiles": stats.quantiles,
-                "histogram": stats.histogram,
-                "gaussian_pvalue": stats.gaussian_pvalue,
+                "min": sanitize_numeric_for_json(stats.min_value),
+                "max": sanitize_numeric_for_json(stats.max_value),
+                "mean": sanitize_numeric_for_json(stats.mean),
+                "median": sanitize_numeric_for_json(stats.median),
+                "stddev": sanitize_numeric_for_json(stats.stddev),
+                "quantiles": sanitize_numeric_for_json(stats.quantiles),
+                "histogram": sanitize_numeric_for_json(stats.histogram),
+                "gaussian_pvalue": sanitize_numeric_for_json(stats.gaussian_pvalue),
             })
         elif col_info.inferred_type == "money":
             profile.update({
                 "valid_count": stats.valid_count,
                 "invalid_count": stats.invalid_count,
-                "min_value": stats.min_value,
-                "max_value": stats.max_value,
+                "min_value": sanitize_numeric_for_json(stats.min_value),
+                "max_value": sanitize_numeric_for_json(stats.max_value),
                 "two_decimal_ok": stats.two_decimal_ok,
                 "disallowed_symbols_found": stats.disallowed_symbols_found,
             })
@@ -371,17 +544,17 @@ async def profile_columns(
             })
         elif col_info.inferred_type == "code":
             profile.update({
-                "cardinality_ratio": stats.cardinality_ratio,
+                "cardinality_ratio": sanitize_numeric_for_json(stats.cardinality_ratio),
                 "min_length": stats.min_length,
                 "max_length": stats.max_length,
-                "avg_length": stats.avg_length,
+                "avg_length": sanitize_numeric_for_json(stats.avg_length),
                 "top_values": stats.top_values[:10],
             })
         elif col_info.inferred_type in ["alpha", "varchar", "mixed", "unknown"]:
             profile.update({
                 "min_length": stats.min_length,
                 "max_length": stats.max_length,
-                "avg_length": stats.avg_length,
+                "avg_length": sanitize_numeric_for_json(stats.avg_length),
                 "top_values": stats.top_values[:10],
                 "has_non_ascii": stats.has_non_ascii,
                 "character_types": list(stats.character_types),
@@ -454,7 +627,70 @@ async def process_file(
             )
             return
 
-        # Step 2: CRLF Detection (20% progress)
+        # Step 2: Delimiter Auto-Detection (15% progress)
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=15.0)
+
+        # Store original values for comparison
+        original_delimiter = delimiter
+        original_quoted = quoted
+
+        delimiter_detector = DelimiterDetector()
+        detected_delimiter, delimiter_confidence = delimiter_detector.detect(file_content)
+
+        # Delimiter detection logged internally (detected: {detected_delimiter}, confidence: {delimiter_confidence:.2%}, provided: {delimiter})
+
+        # Use detected delimiter and warn if different from provided
+        actual_delimiter = detected_delimiter
+        if detected_delimiter != original_delimiter and delimiter_confidence > 0.7:
+            # High confidence that detected delimiter is different
+            delimiter_name_map = {',': 'comma', '|': 'pipe', '\t': 'tab', ';': 'semicolon'}
+            detected_name = delimiter_name_map.get(detected_delimiter, repr(detected_delimiter))
+            provided_name = delimiter_name_map.get(delimiter, repr(delimiter))
+
+            workspace.add_warning(
+                run_id,
+                ErrorDetail(
+                    code="W_DELIMITER_MISMATCH",
+                    message=f"Detected {detected_name} delimiter with {delimiter_confidence:.0%} confidence (original setting: {provided_name}). Using detected delimiter.",
+                    count=1
+                )
+            )
+            audit_logger.log_warning(
+                run_id=run_id,
+                warning_code="W_DELIMITER_MISMATCH",
+                count=1
+            )
+
+        # Update delimiter to use detected value
+        delimiter = actual_delimiter
+
+        # Step 2.5: Quoting Auto-Detection (17% progress)
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=17.0)
+
+        quoting_detector = QuotingDetector()
+        detected_quoting, quoting_confidence = quoting_detector.detect(file_content, delimiter)
+
+        # Use detected quoting and warn if different from provided
+        if detected_quoting != original_quoted and quoting_confidence > 0.7:
+            # High confidence that detected quoting is different
+            workspace.add_warning(
+                run_id,
+                ErrorDetail(
+                    code="W_QUOTING_MISMATCH",
+                    message=f"Detected {'quoted' if detected_quoting else 'unquoted'} fields with {quoting_confidence:.0%} confidence (original setting: {'quoted' if quoted else 'unquoted'}). Using detected setting.",
+                    count=1
+                )
+            )
+            audit_logger.log_warning(
+                run_id=run_id,
+                warning_code="W_QUOTING_MISMATCH",
+                count=1
+            )
+
+        # Update quoted to use detected value
+        quoted = detected_quoting
+
+        # Step 3: CRLF Detection (20% progress)
         workspace.update_state(run_id, RunState.PROCESSING, progress_pct=20.0)
 
         stream.seek(0)
@@ -511,16 +747,17 @@ async def process_file(
         try:
             header_result = parser.parse_header()
         except ParserError as e:
-            # Catastrophic error in header
+            # Catastrophic error in header - provide friendly message
+            friendly_msg = friendly_error_message(e.code, e.message)
             workspace.update_state(run_id, RunState.FAILED)
             workspace.add_error(
                 run_id,
-                ErrorDetail(code=e.code, message=e.message, count=1)
+                ErrorDetail(code=e.code, message=friendly_msg, count=1)
             )
             audit_logger.log_run_failed(
                 run_id=run_id,
                 error_code=e.code,
-                error_message=e.message
+                error_message=friendly_msg
             )
             return
 
@@ -638,6 +875,23 @@ async def process_file(
         # Store profile results in workspace metadata
         workspace.save_column_profiles(run_id, column_profiles)
 
+        # Store detection metadata for frontend display
+        metadata = workspace.load_metadata(run_id)
+        if metadata:
+            metadata_dict = metadata.to_dict()
+            metadata_dict['detection_info'] = {
+                'delimiter': delimiter,
+                'delimiter_detected': detected_delimiter != original_delimiter,
+                'delimiter_confidence': delimiter_confidence,
+                'quoted': quoted,
+                'quoting_detected': detected_quoting != original_quoted,
+                'quoting_confidence': quoting_confidence,
+                'crlf_detected': line_ending_result.style.value == 'CRLF'
+            }
+            # Save updated metadata
+            with open(workspace.get_metadata_path(run_id), 'w') as f:
+                json.dump(metadata_dict, f, indent=2)
+
         # Calculate aggregate statistics for audit log
         total_null_count = sum(
             profile.get('null_count', 0)
@@ -672,28 +926,37 @@ async def process_file(
         )
 
     except ParserError as e:
-        # Catastrophic parser error
+        # Catastrophic parser error - provide friendly message
+        friendly_msg = friendly_error_message(e.code, e.message)
         workspace.update_state(run_id, RunState.FAILED)
         workspace.add_error(
             run_id,
-            ErrorDetail(code=e.code, message=e.message, count=1)
+            ErrorDetail(code=e.code, message=friendly_msg, count=1)
         )
         audit_logger.log_run_failed(
             run_id=run_id,
             error_code=e.code,
-            error_message=e.message
+            error_message=friendly_msg
         )
     except Exception as e:
-        # Unexpected error
+        # Unexpected error - provide generic friendly message
+        friendly_msg = (
+            f"An unexpected error occurred during file processing.\n\n"
+            f"Common causes:\n"
+            f"1. File format doesn't match CSV expectations\n"
+            f"2. File is corrupted or incomplete\n"
+            f"3. System resource limitations\n\n"
+            f"Technical details: {str(e)}"
+        )
         workspace.update_state(run_id, RunState.FAILED)
         workspace.add_error(
             run_id,
-            ErrorDetail(code="E_PROCESSING_FAILED", message=str(e), count=1)
+            ErrorDetail(code="E_PROCESSING_FAILED", message=friendly_msg, count=1)
         )
         audit_logger.log_run_failed(
             run_id=run_id,
             error_code="E_PROCESSING_FAILED",
-            error_message=str(e)
+            error_message=friendly_msg
         )
 
 
@@ -934,6 +1197,152 @@ async def get_metrics_csv(run_id: UUID) -> StreamingResponse:
     )
 
 
+@router.get("/{run_id}/report.html")
+async def get_report_html(run_id: UUID) -> StreamingResponse:
+    """
+    Generate and download an HTML report.
+
+    Creates a self-contained HTML report with file summary, column profiles,
+    errors, warnings, and candidate key suggestions. The report uses embedded
+    CSS with VisiQuate branding and is optimized for viewing in a browser
+    or printing.
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        StreamingResponse with HTML content
+
+    Raises:
+        HTTPException: If run not found or not completed
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+
+    # Check if run is completed
+    if metadata.state != RunState.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Run {run_id} is not completed (state: {metadata.state})"
+        )
+
+    # Check if column profiles exist
+    if not metadata.column_profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No column profiles found for run {run_id}"
+        )
+
+    # Read the normalized CSV to get row count and headers
+    run_dir = workspace.get_run_dir(run_id)
+    normalized_csv = run_dir / "normalized.csv"
+
+    if not normalized_csv.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile data not found"
+        )
+
+    # Read CSV to get row count and headers
+    row_count = 0
+    headers = []
+    with open(normalized_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter=metadata.delimiter)
+        headers = reader.fieldnames or []
+        for _ in reader:
+            row_count += 1
+
+    # Build file metadata with detection info
+    detection_info = metadata.__dict__.get('detection_info', {}) if hasattr(metadata, '__dict__') else {}
+
+    # Try to get detection_info from metadata dict if it exists
+    if not detection_info and hasattr(metadata, 'to_dict'):
+        metadata_dict = metadata.to_dict()
+        detection_info = metadata_dict.get('detection_info', {})
+
+    file_metadata = {
+        'rows': row_count,
+        'columns': len(headers),
+        'delimiter': metadata.delimiter,
+        'crlf_detected': metadata.expect_crlf,
+        'header': headers,
+        'delimiter_detected': detection_info.get('delimiter_detected'),
+        'delimiter_confidence': detection_info.get('delimiter_confidence'),
+        'quoting_detected': detection_info.get('quoting_detected'),
+        'quoting_confidence': detection_info.get('quoting_confidence'),
+        'quoted': detection_info.get('quoted')
+    }
+
+    # Convert column profiles to list of dicts (preserve order from headers)
+    columns = []
+    for col_name in headers:
+        if col_name in metadata.column_profiles:
+            columns.append(metadata.column_profiles[col_name])
+
+    # Generate candidate keys based on distinct ratios and null counts
+    candidate_keys = []
+    for col_name, profile in metadata.column_profiles.items():
+        distinct_pct = profile.get("distinct_pct", 0.0)
+
+        if distinct_pct >= 95.0:  # High cardinality threshold
+            null_count = profile.get("null_count", 0)
+            distinct_count = profile.get("distinct_count", 0)
+
+            distinct_ratio = distinct_count / row_count if row_count > 0 else 0.0
+            null_ratio = null_count / row_count if row_count > 0 else 0.0
+            score = distinct_ratio * (1.0 - null_ratio)
+
+            if score >= 0.9:  # Only suggest strong candidates
+                candidate_keys.append({
+                    'columns': [col_name],
+                    'distinct_ratio': distinct_ratio,
+                    'null_ratio_sum': null_ratio,
+                    'score': score
+                })
+
+    # Sort by score descending
+    candidate_keys.sort(key=lambda k: k['score'], reverse=True)
+
+    # Generate HTML report
+    html_content = generate_html_report(
+        run_id=run_id,
+        file_metadata=file_metadata,
+        columns=columns,
+        errors=metadata.errors,
+        warnings=metadata.warnings,
+        candidate_keys=candidate_keys[:5]  # Top 5 candidates
+    )
+
+    # Save report to run directory for caching
+    report_path = run_dir / "report.html"
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    # Return as streaming response
+    def iterhtml():
+        yield html_content.encode('utf-8')
+
+    return StreamingResponse(
+        iterhtml(),
+        media_type="text/html",
+        headers={
+            "Content-Disposition": f"inline; filename=report_{run_id}.html"
+        }
+    )
+
+
 @router.get("/{run_id}/profile", response_model=ProfileResponse)
 async def get_profile(run_id: UUID) -> ProfileResponse:
     """
@@ -1000,13 +1409,25 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         for _ in reader:
             row_count += 1
 
-    # Build file metadata
+    # Build file metadata with detection info
+    detection_info = metadata.__dict__.get('detection_info', {}) if hasattr(metadata, '__dict__') else {}
+
+    # Try to get detection_info from metadata dict if it exists
+    if not detection_info and hasattr(metadata, 'to_dict'):
+        metadata_dict = metadata.to_dict()
+        detection_info = metadata_dict.get('detection_info', {})
+
     file_metadata = FileMetadata(
         rows=row_count,
         columns=len(headers),
         delimiter=metadata.delimiter,
         crlf_detected=metadata.expect_crlf,
-        header=headers
+        header=headers,
+        delimiter_detected=detection_info.get('delimiter_detected'),
+        delimiter_confidence=detection_info.get('delimiter_confidence'),
+        quoting_detected=detection_info.get('quoting_detected'),
+        quoting_confidence=detection_info.get('quoting_confidence'),
+        quoted=detection_info.get('quoted')
     )
 
     # Convert error/warning dicts to ErrorDetail models
@@ -1019,7 +1440,7 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         # Create base column profile
         col_profile = ColumnProfileResponse(
             name=profile_data.get("name", col_name),
-            type=profile_data.get("type", "unknown"),
+            type=profile_data.get("type") or "unknown",
             null_count=profile_data.get("null_count", 0),
             distinct_count=profile_data.get("distinct_count", 0),
             distinct_pct=profile_data.get("distinct_pct", 0.0),
@@ -1027,26 +1448,26 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         )
 
         # Add type-specific fields
-        col_type = profile_data.get("type", "")
+        col_type = profile_data.get("type") or ""  # Handle None explicitly
 
         if col_type == "numeric":
-            col_profile.min = profile_data.get("min")
-            col_profile.max = profile_data.get("max")
-            col_profile.mean = profile_data.get("mean")
-            col_profile.median = profile_data.get("median")
-            col_profile.stddev = profile_data.get("stddev")
-            col_profile.quantiles = profile_data.get("quantiles")
-            col_profile.histogram = profile_data.get("histogram")
-            col_profile.gaussian_pvalue = profile_data.get("gaussian_pvalue")
+            col_profile.min = sanitize_numeric_for_json(profile_data.get("min"))
+            col_profile.max = sanitize_numeric_for_json(profile_data.get("max"))
+            col_profile.mean = sanitize_numeric_for_json(profile_data.get("mean"))
+            col_profile.median = sanitize_numeric_for_json(profile_data.get("median"))
+            col_profile.stddev = sanitize_numeric_for_json(profile_data.get("stddev"))
+            col_profile.quantiles = sanitize_numeric_for_json(profile_data.get("quantiles"))
+            col_profile.histogram = sanitize_numeric_for_json(profile_data.get("histogram"))
+            col_profile.gaussian_pvalue = sanitize_numeric_for_json(profile_data.get("gaussian_pvalue"))
 
         elif col_type in ["alpha", "varchar", "code", "mixed", "unknown"]:
             col_profile.min_length = profile_data.get("min_length")
             col_profile.max_length = profile_data.get("max_length")
-            col_profile.avg_length = profile_data.get("avg_length")
+            col_profile.avg_length = sanitize_numeric_for_json(profile_data.get("avg_length"))
             col_profile.has_non_ascii = profile_data.get("has_non_ascii")
             col_profile.character_types = profile_data.get("character_types")
             if col_type == "code":
-                col_profile.cardinality_ratio = profile_data.get("cardinality_ratio")
+                col_profile.cardinality_ratio = sanitize_numeric_for_json(profile_data.get("cardinality_ratio"))
 
         elif col_type == "date":
             col_profile.valid_count = profile_data.get("valid_count")
@@ -1060,8 +1481,8 @@ async def get_profile(run_id: UUID) -> ProfileResponse:
         elif col_type == "money":
             col_profile.valid_count = profile_data.get("valid_count")
             col_profile.invalid_count = profile_data.get("invalid_count")
-            col_profile.min_value = profile_data.get("min_value")
-            col_profile.max_value = profile_data.get("max_value")
+            col_profile.min_value = sanitize_numeric_for_json(profile_data.get("min_value"))
+            col_profile.max_value = sanitize_numeric_for_json(profile_data.get("max_value"))
             col_profile.two_decimal_ok = profile_data.get("two_decimal_ok")
             col_profile.disallowed_symbols_found = profile_data.get("disallowed_symbols_found")
 

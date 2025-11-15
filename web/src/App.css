@@ -1,5 +1,24 @@
 /* VQ8 Data Profiler Custom Styles */
 
+/* Layout container utilities for consistent width constraints */
+.content-container {
+  max-width: 1024px; /* 5xl */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.content-container-wide {
+  max-width: 1152px; /* 6xl */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.content-container-narrow {
+  max-width: 672px; /* 2xl */
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .btn-primary {
   background-color: var(--vq-primary);
   color: white;
@@ -17,6 +36,27 @@
 }
 
 .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-accent {
+  background-color: var(--vq-accent);
+  color: white;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background-color: #e04800;
+  box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
+}
+
+.btn-accent:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -244,4 +284,80 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Column table styles */
+.column-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Sticky table header on scroll */
+.column-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: white;
+}
+
+.dark .column-table thead {
+  background-color: rgb(30 41 59);
+}
+
+/* Alternating row colors for better readability */
+.column-table tbody tr:nth-child(even) {
+  background-color: rgb(249 250 251);
+}
+
+.dark .column-table tbody tr:nth-child(even) {
+  background-color: rgb(15 23 42);
+}
+
+/* Mobile responsive table */
+@media (max-width: 768px) {
+  .column-table {
+    font-size: 0.75rem;
+  }
+
+  .column-table th,
+  .column-table td {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .column-table .badge {
+    font-size: 0.65rem;
+    padding: 0.125rem 0.5rem;
+  }
+}
+
+/* Download cards with enhanced visual design */
+.download-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.download-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.download-card:hover::before {
+  opacity: 0.5;
+}
+
+/* Smooth color transitions for download icons */
+.download-card:hover {
+  transform: translateY(-2px);
+}
+
+.download-card:active {
+  transform: translateY(0);
+  transition-duration: 0.1s;
 }

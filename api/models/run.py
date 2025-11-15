@@ -23,24 +23,24 @@ class RunState(str, Enum):
 class RunCreate(BaseModel):
     """Request model for creating a profiling run."""
 
-    delimiter: str = Field(
-        ...,
-        pattern="^[|,]$",
-        description="Delimiter character: | or ,"
+    delimiter: Optional[str] = Field(
+        None,
+        pattern="^[|,\t;]$",
+        description="Delimiter character: | or , or tab or ; (if not provided, auto-detect)"
     )
-    quoted: bool = Field(
-        default=True,
-        description="Whether fields use double-quote escaping"
+    quoted: Optional[bool] = Field(
+        None,
+        description="Whether fields use double-quote escaping (if not provided, auto-detect)"
     )
-    expect_crlf: bool = Field(
-        default=True,
-        description="Whether to expect CRLF line endings"
+    expect_crlf: Optional[bool] = Field(
+        None,
+        description="Whether to expect CRLF line endings (if not provided, auto-detect)"
     )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "delimiter": "|",
+                "delimiter": None,
                 "quoted": True,
                 "expect_crlf": True
             }
@@ -93,6 +93,11 @@ class RunStatus(BaseModel):
     warnings: List[ErrorDetail] = Field(default_factory=list, description="Non-critical warnings")
     errors: List[ErrorDetail] = Field(default_factory=list, description="Errors encountered")
     column_profiles: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="Column profile results")
+
+    # Additional fields for run history display
+    source_filename: Optional[str] = Field(None, description="Original uploaded file name")
+    row_count: Optional[int] = Field(None, description="Number of rows in the file")
+    column_count: Optional[int] = Field(None, description="Number of columns in the file")
 
     class Config:
         json_schema_extra = {
@@ -163,6 +168,13 @@ class FileMetadata(BaseModel):
     delimiter: str = Field(..., description="Delimiter used")
     crlf_detected: bool = Field(..., description="Whether CRLF line endings were detected")
     header: List[str] = Field(..., description="Column headers")
+
+    # Auto-detection metadata (optional for backward compatibility)
+    delimiter_detected: Optional[bool] = Field(None, description="Whether delimiter was auto-detected")
+    delimiter_confidence: Optional[float] = Field(None, description="Delimiter detection confidence (0.0-1.0)")
+    quoting_detected: Optional[bool] = Field(None, description="Whether quoting was auto-detected")
+    quoting_confidence: Optional[float] = Field(None, description="Quoting detection confidence (0.0-1.0)")
+    quoted: Optional[bool] = Field(None, description="Whether fields use quoting")
 
 
 class ColumnProfileResponse(BaseModel):

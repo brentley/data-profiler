@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- VQ8 Branded Favicon with VisiQuate Colors -->
+  <rect width="100" height="100" fill="#116df8" rx="20"/>
+  <text x="50" y="70" font-family="system-ui, -apple-system, sans-serif" font-size="60" font-weight="bold" fill="white" text-anchor="middle">8</text>
+  <circle cx="75" cy="25" r="8" fill="#ff5100"/>
+</svg>

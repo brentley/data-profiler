@@ -25,7 +25,9 @@ export function CandidateKeys({
       <div className="card">
         <div className="flex items-center gap-3">
           <svg
-            className="w-6 h-6 text-gray-400"
+            className="w-6 h-6 text-gray-400 flex-shrink-0"
+            width="24"
+            height="24"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -168,7 +170,9 @@ export function CandidateKeys({
         ) : (
           <>
             <svg
-              className="w-5 h-5"
+              className="w-5 h-5 flex-shrink-0"
+              width="20"
+              height="20"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

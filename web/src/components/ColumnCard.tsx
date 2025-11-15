@@ -5,10 +5,14 @@ import type { ColumnProfile } from '../types/api';
 interface ColumnCardProps {
   column: ColumnProfile;
   index: number;
+  totalRows: number;
 }
 
-export function ColumnCard({ column, index }: ColumnCardProps) {
+export function ColumnCard({ column, index, totalRows }: ColumnCardProps) {
   const [expanded, setExpanded] = useState(false);
+
+  // Calculate null percentage from null count and total rows
+  const nullPct = totalRows > 0 ? (column.null_count / totalRows) * 100 : 0;
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -55,7 +59,9 @@ export function ColumnCard({ column, index }: ColumnCardProps) {
           aria-label={expanded ? 'Collapse' : 'Expand'}
         >
           <svg
-            className={`w-6 h-6 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            className={`w-6 h-6 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            width="24"
+            height="24"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -77,7 +83,7 @@ export function ColumnCard({ column, index }: ColumnCardProps) {
             Null %
           </div>
           <div className="text-lg font-semibold">
-            {column.null_pct.toFixed(1)}%
+            {nullPct.toFixed(1)}%
           </div>
         </div>
         <div className="text-center p-3 bg-gray-50 dark:bg-slate-700/50 rounded">
