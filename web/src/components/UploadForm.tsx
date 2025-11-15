@@ -1,5 +1,5 @@
-// File upload form component
-// Supports .txt, .csv, .gz files with delimiter selection
+// File upload form component with automatic format detection
+// Supports .txt, .csv, .gz files with auto-detected delimiter, quoting, and line endings
 import { useState, useRef, type DragEvent } from 'react';
 import { api } from '../utils/api';
 import type { CreateRunRequest } from '../types/api';
@@ -11,9 +11,6 @@ interface UploadFormProps {
 
 export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [delimiter, setDelimiter] = useState<'|' | ','>('|');
-  const [quoted, setQuoted] = useState(true);
-  const [expectCrlf, setExpectCrlf] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,11 +82,11 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
     setUploading(true);
 
     try {
-      // Step 1: Create run
+      // Step 1: Create run with auto-detection for all settings
       const request: CreateRunRequest = {
-        delimiter,
-        quoted,
-        expect_crlf: expectCrlf,
+        delimiter: null,  // Always auto-detect
+        quoted: true,     // Default assumption
+        expect_crlf: true // Default assumption
       };
       const { run_id } = await api.createRun(request);
 
@@ -116,6 +113,11 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Instructions */}
+      <div className="text-sm text-gray-600 dark:text-gray-400">
+        Upload your CSV file for automatic profiling. The delimiter, quoting, and line endings will be detected automatically.
+      </div>
+
       {/* File Upload Dropzone */}
       <div style={{ width: '100%' }}>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -139,9 +141,9 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
           {file ? (
             <div className="flex items-center gap-2">
               <svg
+                className="w-6 h-6 text-green-500 flex-shrink-0"
                 width="24"
                 height="24"
-                className="h-6 w-6 text-green-500 flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -172,9 +174,9 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
           ) : (
             <div className="flex items-center gap-2">
               <svg
+                className="w-6 h-6 text-gray-400 flex-shrink-0"
                 width="24"
                 height="24"
-                className="h-6 w-6 text-gray-400 flex-shrink-0"
                 stroke="currentColor"
                 fill="none"
                 viewBox="0 0 48 48"
@@ -196,67 +198,12 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
         </div>
       </div>
 
-      {/* Delimiter Selection */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Delimiter
-        </label>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
-            <input
-              type="radio"
-              value="|"
-              checked={delimiter === '|'}
-              onChange={(e) => setDelimiter(e.target.value as '|')}
-              className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2"
-            />
-            <span className="text-sm">Pipe (|)</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
-            <input
-              type="radio"
-              value=","
-              checked={delimiter === ','}
-              onChange={(e) => setDelimiter(e.target.value as ',')}
-              className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2"
-            />
-            <span className="text-sm">Comma (,)</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Options */}
-      <div className="space-y-2.5">
-        <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
-          <input
-            type="checkbox"
-            checked={quoted}
-            onChange={(e) => setQuoted(e.target.checked)}
-            className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2 rounded"
-          />
-          <span className="text-sm">
-            Fields may be quoted (double quotes)
-          </span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer hover:text-vq-primary transition-colors">
-          <input
-            type="checkbox"
-            checked={expectCrlf}
-            onChange={(e) => setExpectCrlf(e.target.checked)}
-            className="w-4 h-4 text-vq-primary focus:ring-vq-primary focus:ring-2 rounded"
-          />
-          <span className="text-sm">
-            Expect CRLF line endings (Windows)
-          </span>
-        </label>
-      </div>
-
       {/* Submit Button */}
       <div className="pt-2">
         <button
           type="submit"
           disabled={!file || uploading}
-          className="btn-primary flex items-center justify-center gap-2 min-w-[160px]"
+          className="btn-accent flex items-center justify-center gap-2 min-w-[160px]"
         >
           {uploading ? (
             <>
@@ -266,7 +213,9 @@ export function UploadForm({ onUploadStart, onError }: UploadFormProps) {
           ) : (
             <>
               <svg
-                className="w-4 h-4"
+                className="w-4 h-4 flex-shrink-0"
+                width="16"
+                height="16"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
