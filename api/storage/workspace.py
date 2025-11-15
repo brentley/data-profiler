@@ -32,6 +32,7 @@ class RunMetadata:
     warnings: List[Dict] = None
     errors: List[Dict] = None
     column_profiles: Optional[Dict[str, Dict]] = None
+    detection_info: Optional[Dict] = None
 
     def __post_init__(self):
         """Initialize lists if None."""
@@ -41,6 +42,8 @@ class RunMetadata:
             self.errors = []
         if self.column_profiles is None:
             self.column_profiles = {}
+        if self.detection_info is None:
+            self.detection_info = {}
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
