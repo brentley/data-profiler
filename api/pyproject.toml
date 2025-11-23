@@ -10,7 +10,7 @@ packages = [{include = "app"}, {include = "services"}, {include = "storage"}, {i
 python = "^3.11"
 fastapi = "^0.109.0"
 uvicorn = {extras = ["standard"], version = "^0.27.0"}
-python-multipart = "^0.0.6"
+python-multipart = "^0.0.18"
 pydantic = "^2.5.0"
 pydantic-settings = "^2.1.0"
 sqlalchemy = "^2.0.25"
