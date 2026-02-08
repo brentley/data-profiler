@@ -22,6 +22,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ..models.run import (
     CandidateKey,
     CandidateKeysResponse,
+    ChunkedUploadComplete,
+    ChunkedUploadInit,
+    ChunkedUploadStatus,
     ColumnProfileResponse,
     ConfirmKeysRequest,
     DuplicateDetectionResponse,
@@ -34,6 +37,7 @@ from ..models.run import (
     RunResponse,
     RunState,
     RunStatus,
+    UploadState,
 )
 from ..services.ingest import (
     CRLFDetector,
@@ -56,7 +60,9 @@ from ..services.profile import (
 from ..services.distincts import DistinctCounter
 from ..services.audit import AuditLogger
 from ..services.report import generate_html_report
+from ..services.quality_rules import QualityRulesAnalyzer
 from ..storage.workspace import WorkspaceManager
+from ..utils.security import sanitize_filename, safe_gzip_decompress, sanitize_error_message
 
 # Workspace manager (initialized lazily)
 _workspace: Optional[WorkspaceManager] = None
@@ -141,8 +147,7 @@ async def list_runs(limit: int = 20) -> List[RunStatus]:
                     if normalized_csv.exists():
                         try:
                             with open(normalized_csv, 'r', encoding='utf-8') as f:
-                                import csv as csv_module
-                                reader = csv_module.DictReader(f, delimiter=metadata.delimiter)
+                                reader = csv.DictReader(f, delimiter=metadata.delimiter)
                                 headers = reader.fieldnames or []
                                 column_count = len(headers)
                                 for _ in reader:
@@ -177,7 +182,7 @@ async def list_runs(limit: int = 20) -> List[RunStatus]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list runs: {str(e)}"
+            detail=sanitize_error_message(e, "Failed to list runs")
         )
 
 
@@ -307,7 +312,7 @@ async def create_run(run_config: RunCreate) -> RunResponse:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create run: {str(e)}"
+            detail=sanitize_error_message(e, "Failed to create run")
         )
 
 
@@ -357,10 +362,12 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
             detail=f"Run {run_id} already has a file uploaded (state: {metadata.state})"
         )
 
-    # Validate file extension
-    filename = file.filename or "uploaded_file"
+    # Security: Sanitize filename to prevent path traversal
+    filename = sanitize_filename(file.filename or "uploaded_file")
+
+    # Validate file extension after sanitization
     valid_extensions = ['.txt', '.csv', '.txt.gz', '.csv.gz']
-    if not any(filename.endswith(ext) for ext in valid_extensions):
+    if not any(filename.lower().endswith(ext) for ext in valid_extensions):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type. Accepted: {', '.join(valid_extensions)}"
@@ -370,16 +377,10 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
         # Read file content (streaming would be better for very large files)
         file_content = await file.read()
 
-        # Detect if gzipped and decompress if needed
+        # Detect if gzipped and decompress with bomb protection
         is_gzipped = filename.endswith('.gz')
         if is_gzipped:
-            try:
-                file_content = gzip.decompress(file_content)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Failed to decompress gzip file: {str(e)}"
-                )
+            file_content = safe_gzip_decompress(file_content)
 
         # Save uploaded file
         workspace.save_uploaded_file(run_id, file_content, filename)
@@ -416,8 +417,265 @@ async def upload_file(run_id: UUID, file: UploadFile = File(...)) -> FileUploadR
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process upload: {str(e)}"
+            detail=sanitize_error_message(e, "Failed to process upload")
         )
+
+
+@router.post("/{run_id}/upload/init", response_model=ChunkedUploadStatus, status_code=status.HTTP_200_OK)
+async def init_chunked_upload(run_id: UUID, init_request: ChunkedUploadInit):
+    """
+    Initialize a chunked file upload.
+
+    This endpoint must be called before uploading any chunks. It validates the
+    filename and total size, then returns upload status with the calculated
+    total number of chunks.
+
+    Args:
+        run_id: Run UUID from create_run endpoint
+        init_request: ChunkedUploadInit with filename, total_size, and chunk_size
+
+    Returns:
+        ChunkedUploadStatus with initialized upload information
+
+    Raises:
+        HTTPException: If run not found, already has file, or invalid filename
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+
+    metadata = workspace.load_metadata(run_id)
+    if not metadata:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+
+    if metadata.state != RunState.QUEUED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Run {run_id} already has a file (state: {metadata.state})")
+
+    # Security: Sanitize filename to prevent path traversal
+    filename = sanitize_filename(init_request.filename)
+
+    # Validate file extension after sanitization
+    valid_extensions = ['.txt', '.csv', '.txt.gz', '.csv.gz']
+    if not any(filename.lower().endswith(ext) for ext in valid_extensions):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Accepted: {', '.join(valid_extensions)}"
+        )
+
+    upload_info = workspace.init_chunked_upload(run_id, filename, init_request.total_size, init_request.chunk_size)
+
+    return ChunkedUploadStatus(
+        run_id=run_id,
+        upload_state=UploadState.INITIALIZED,
+        filename=filename,
+        total_size=init_request.total_size,
+        bytes_received=0,
+        chunks_received=0,
+        total_chunks=math.ceil(init_request.total_size / init_request.chunk_size),
+        progress_pct=0.0
+    )
+
+
+@router.patch("/{run_id}/upload/chunk", response_model=ChunkedUploadStatus)
+async def upload_chunk(run_id: UUID, chunk_index: int, file: UploadFile = File(...)):
+    """
+    Upload a single chunk.
+
+    Chunks can be uploaded in any order and are idempotent - uploading the same
+    chunk twice will not result in duplicated data. This enables resume support.
+
+    Args:
+        run_id: Run UUID from create_run endpoint
+        chunk_index: Zero-based index of this chunk
+        file: Chunk data as file upload
+
+    Returns:
+        ChunkedUploadStatus with updated progress
+
+    Raises:
+        HTTPException: If run not found, upload not initialized, or invalid chunk
+    """
+    workspace = get_workspace()
+
+    # Security: Validate chunk_index bounds FIRST (before any use)
+    if chunk_index < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chunk_index: must be non-negative"
+        )
+
+    if chunk_index > 100000:  # Reasonable upper bound for 10GB / 5MB chunks = ~2048
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid chunk_index: exceeds maximum allowed"
+        )
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+
+    upload_info = workspace.get_upload_info(run_id)
+    if not upload_info:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chunked upload not initialized. Call /upload/init first.")
+
+    if upload_info["upload_state"] == "completed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload already completed")
+
+    if chunk_index >= upload_info["total_chunks"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid chunk_index. Expected 0-{upload_info['total_chunks'] - 1}")
+
+    # Check if chunk already exists (for resume - idempotent)
+    chunks_dir = workspace.get_run_dir(run_id) / "chunks"
+    chunk_path = chunks_dir / f"chunk_{chunk_index:06d}"
+    if chunk_path.exists():
+        # Chunk already uploaded - return current status (idempotent)
+        return ChunkedUploadStatus(
+            run_id=run_id,
+            upload_state=UploadState(upload_info["upload_state"]),
+            filename=upload_info["filename"],
+            total_size=upload_info["total_size"],
+            bytes_received=upload_info["bytes_received"],
+            chunks_received=upload_info["chunks_received"],
+            total_chunks=upload_info["total_chunks"],
+            progress_pct=(upload_info["bytes_received"] / upload_info["total_size"] * 100.0) if upload_info["total_size"] > 0 else 0.0
+        )
+
+    # Read chunk data
+    chunk_data = await file.read()
+
+    # Validate chunk size (last chunk can be smaller)
+    expected_chunk_size = upload_info["chunk_size"]
+    if chunk_index < upload_info["total_chunks"] - 1:
+        if len(chunk_data) != expected_chunk_size:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Expected chunk size {expected_chunk_size}, got {len(chunk_data)}")
+
+    # Save chunk
+    upload_info = workspace.save_chunk(run_id, chunk_index, chunk_data)
+
+    progress = (upload_info["bytes_received"] / upload_info["total_size"] * 100.0) if upload_info["total_size"] > 0 else 0.0
+
+    return ChunkedUploadStatus(
+        run_id=run_id,
+        upload_state=UploadState.UPLOADING,
+        filename=upload_info["filename"],
+        total_size=upload_info["total_size"],
+        bytes_received=upload_info["bytes_received"],
+        chunks_received=upload_info["chunks_received"],
+        total_chunks=upload_info["total_chunks"],
+        progress_pct=min(progress, 99.9)  # Don't show 100% until assembly complete
+    )
+
+
+@router.get("/{run_id}/upload/status", response_model=ChunkedUploadStatus)
+async def get_upload_status(run_id: UUID):
+    """
+    Get the current upload status.
+
+    Use this endpoint to monitor progress and determine which chunks still need
+    to be uploaded, enabling resume support.
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        ChunkedUploadStatus with current progress
+
+    Raises:
+        HTTPException: If run not found or no chunked upload found
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+
+    upload_info = workspace.get_upload_info(run_id)
+    if not upload_info:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No chunked upload found for this run")
+
+    progress = (upload_info["bytes_received"] / upload_info["total_size"] * 100.0) if upload_info["total_size"] > 0 else 0.0
+
+    return ChunkedUploadStatus(
+        run_id=run_id,
+        upload_state=UploadState(upload_info["upload_state"]),
+        filename=upload_info["filename"],
+        total_size=upload_info["total_size"],
+        bytes_received=upload_info["bytes_received"],
+        chunks_received=upload_info["chunks_received"],
+        total_chunks=upload_info["total_chunks"],
+        progress_pct=progress
+    )
+
+
+@router.post("/{run_id}/upload/complete", response_model=ChunkedUploadComplete, status_code=status.HTTP_202_ACCEPTED)
+async def complete_chunked_upload(run_id: UUID):
+    """
+    Complete chunked upload - assemble chunks and start processing.
+
+    All chunks must be uploaded before calling this endpoint. It assembles the
+    chunks into the final file, logs the upload, and starts background processing.
+
+    Args:
+        run_id: Run UUID
+
+    Returns:
+        ChunkedUploadComplete with processing status
+
+    Raises:
+        HTTPException: If run not found, chunks missing, or assembly fails
+    """
+    workspace = get_workspace()
+
+    if not workspace.run_exists(run_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+
+    upload_info = workspace.get_upload_info(run_id)
+    if not upload_info:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chunked upload not initialized")
+
+    if upload_info["upload_state"] == "completed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload already completed and processing started")
+
+    # Verify all chunks received
+    if upload_info["chunks_received"] < upload_info["total_chunks"]:
+        missing = upload_info["total_chunks"] - upload_info["chunks_received"]
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Missing {missing} chunks. Upload all chunks before completing.")
+
+    try:
+        # Assemble chunks into final file
+        file_path = workspace.assemble_chunks(run_id)
+
+        # Log file upload
+        audit_logger = get_audit_logger()
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+
+        audit_logger.log_file_uploaded(
+            run_id=run_id,
+            filename=upload_info["filename"],
+            file_data=file_data,
+            is_gzipped=False  # Already decompressed during assembly
+        )
+
+        # Update state to processing
+        workspace.update_state(run_id, RunState.PROCESSING, progress_pct=0.0)
+
+        # Load metadata to get delimiter and quoting settings
+        metadata = workspace.load_metadata(run_id)
+
+        # Start processing
+        await process_file(run_id, file_data, metadata.delimiter, metadata.quoted, workspace)
+
+        return ChunkedUploadComplete(
+            run_id=run_id,
+            state=RunState.PROCESSING,
+            message="File assembled and processing started",
+            total_size=upload_info["total_size"],
+            chunks_received=upload_info["chunks_received"]
+        )
+    except Exception as e:
+        workspace.update_state(run_id, RunState.FAILED)
+        workspace.add_error(run_id, ErrorDetail(code="E_UPLOAD_ASSEMBLY_FAILED", message=str(e), count=1))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=sanitize_error_message(e, "Failed to assemble upload"))
 
 
 async def profile_columns(
@@ -452,6 +710,7 @@ async def profile_columns(
     # Create profilers for each column based on type
     profilers = {}
     distinct_counters = {}
+    quality_analyzers = {}
 
     for col_name, col_info in type_result.columns.items():
         inferred_type = col_info.inferred_type
@@ -473,6 +732,9 @@ async def profile_columns(
         # Create distinct counter for all columns
         distinct_counters[col_name] = DistinctCounter()
 
+        # Create quality analyzer for all columns
+        quality_analyzers[col_name] = QualityRulesAnalyzer()
+
     # Stream through CSV and update profilers
     with open(temp_csv, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter=delimiter)
@@ -481,6 +743,8 @@ async def profile_columns(
             for col_name in columns:
                 value = row.get(col_name, '')
                 profilers[col_name].update(value)
+                col_type = type_result.columns[col_name].inferred_type if col_name in type_result.columns else "unknown"
+                quality_analyzers[col_name].update(value, col_type)
 
     # Finalize profilers and collect results
     for idx, col_name in enumerate(columns):
@@ -562,6 +826,21 @@ async def profile_columns(
 
         # Add top values from distinct counter
         profile["top_values"] = distinct_result.get_top_n(10)
+
+        # Add quality rules results
+        quality_result = quality_analyzers[col_name].finalize()
+        profile["quality"] = {
+            "completeness_pct": round(quality_result.completeness_pct, 2),
+            "uniqueness_pct": round(quality_result.uniqueness_pct, 2),
+            "entropy": quality_result.entropy,
+            "detected_patterns": quality_result.detected_patterns,
+            "leading_whitespace_count": quality_result.leading_whitespace_count,
+            "trailing_whitespace_count": quality_result.trailing_whitespace_count,
+            "empty_string_count": quality_result.empty_string_count,
+            "outlier_count": quality_result.outlier_count,
+            "outlier_pct": round(quality_result.outlier_pct, 2),
+            "phi_risk_flags": quality_result.phi_risk_flags,
+        }
 
         column_profiles[col_name] = profile
 

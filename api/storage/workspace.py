@@ -5,9 +5,11 @@ This module manages run storage, state tracking, and file organization.
 """
 
 import json
+import math
 import shutil
+import gzip as gzip_module
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
@@ -105,7 +107,7 @@ class WorkspaceManager:
             RunMetadata for the new run
         """
         run_id = uuid4()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         metadata = RunMetadata(
             run_id=run_id,
@@ -129,13 +131,26 @@ class WorkspaceManager:
         """
         Get the directory for a specific run.
 
+        Security: Validates path is within workspace to prevent traversal.
+
         Args:
             run_id: Run UUID
 
         Returns:
             Path to run directory
+
+        Raises:
+            ValueError: If path traversal detected
         """
-        return self.runs_dir / str(run_id)
+        run_dir = self.runs_dir / str(run_id)
+
+        # Security: Ensure the resolved path is within runs_dir (prevent path traversal)
+        try:
+            run_dir.resolve().relative_to(self.runs_dir.resolve())
+        except ValueError:
+            raise ValueError("Security: Path traversal detected in run_id")
+
+        return run_dir
 
     def get_metadata_path(self, run_id: UUID) -> Path:
         """
@@ -227,7 +242,7 @@ class WorkspaceManager:
             metadata.progress_pct = progress_pct
 
         # Update timestamps based on state
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         if state == RunState.PROCESSING and metadata.started_at is None:
             metadata.started_at = now
         elif state in [RunState.COMPLETED, RunState.FAILED]:
@@ -355,3 +370,163 @@ class WorkspaceManager:
                     # Skip invalid directory names
                     pass
         return run_ids
+
+    def init_chunked_upload(self, run_id: UUID, filename: str, total_size: int, chunk_size: int) -> dict:
+        """
+        Initialize chunked upload tracking.
+
+        Args:
+            run_id: Run UUID
+            filename: Original filename
+            total_size: Total file size in bytes
+            chunk_size: Size of each chunk in bytes
+
+        Returns:
+            Upload info dictionary
+        """
+        total_chunks = math.ceil(total_size / chunk_size)
+        upload_info = {
+            "filename": filename,
+            "total_size": total_size,
+            "chunk_size": chunk_size,
+            "total_chunks": total_chunks,
+            "bytes_received": 0,
+            "chunks_received": 0,
+            "upload_state": "initialized",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        upload_path = self.get_run_dir(run_id) / "upload_info.json"
+        with open(upload_path, 'w') as f:
+            json.dump(upload_info, f, indent=2)
+
+        # Create the chunks directory
+        chunks_dir = self.get_run_dir(run_id) / "chunks"
+        chunks_dir.mkdir(exist_ok=True)
+
+        return upload_info
+
+    def get_upload_info(self, run_id: UUID) -> Optional[dict]:
+        """
+        Get chunked upload info.
+
+        Args:
+            run_id: Run UUID
+
+        Returns:
+            Upload info dictionary if exists, None otherwise
+        """
+        upload_path = self.get_run_dir(run_id) / "upload_info.json"
+        if not upload_path.exists():
+            return None
+        with open(upload_path, 'r') as f:
+            return json.load(f)
+
+    def save_chunk(self, run_id: UUID, chunk_index: int, chunk_data: bytes) -> dict:
+        """
+        Save a chunk and update upload tracking.
+
+        Args:
+            run_id: Run UUID
+            chunk_index: Index of the chunk being saved
+            chunk_data: Chunk data as bytes
+
+        Returns:
+            Updated upload info dictionary
+        """
+        run_dir = self.get_run_dir(run_id)
+        chunks_dir = run_dir / "chunks"
+
+        # Save chunk file
+        chunk_path = chunks_dir / f"chunk_{chunk_index:06d}"
+        with open(chunk_path, 'wb') as f:
+            f.write(chunk_data)
+
+        # Update upload info
+        upload_info = self.get_upload_info(run_id)
+        if upload_info:
+            upload_info["bytes_received"] += len(chunk_data)
+            upload_info["chunks_received"] += 1
+            upload_info["upload_state"] = "uploading"
+
+            upload_path = run_dir / "upload_info.json"
+            with open(upload_path, 'w') as f:
+                json.dump(upload_info, f, indent=2)
+
+        return upload_info
+
+    def assemble_chunks(self, run_id: UUID) -> Path:
+        """
+        Assemble chunks into final file.
+
+        Args:
+            run_id: Run UUID
+
+        Returns:
+            Path to assembled file
+        """
+        run_dir = self.get_run_dir(run_id)
+        chunks_dir = run_dir / "chunks"
+        upload_info = self.get_upload_info(run_id)
+
+        if not upload_info:
+            raise ValueError(f"No upload info for run {run_id}")
+
+        filename = upload_info["filename"]
+        output_path = self.get_uploaded_file_path(run_id)
+        is_gzipped = filename.endswith('.gz')
+
+        if is_gzipped:
+            # Assemble chunks to a temp gz file, then decompress with bomb protection
+            gz_path = run_dir / "uploaded_file.gz"
+            with open(gz_path, 'wb') as outfile:
+                for i in range(upload_info["total_chunks"]):
+                    chunk_path = chunks_dir / f"chunk_{i:06d}"
+                    if chunk_path.exists():
+                        with open(chunk_path, 'rb') as chunk_file:
+                            outfile.write(chunk_file.read())
+
+            # Decompress with size limit (gzip bomb protection)
+            max_decompressed_size = 10 * 1024 * 1024 * 1024  # 10GB
+            bytes_written = 0
+            with gzip_module.open(gz_path, 'rb') as gz_file:
+                with open(output_path, 'wb') as out_file:
+                    while True:
+                        block = gz_file.read(65536)
+                        if not block:
+                            break
+                        bytes_written += len(block)
+                        if bytes_written > max_decompressed_size:
+                            out_file.close()
+                            output_path.unlink(missing_ok=True)
+                            gz_path.unlink(missing_ok=True)
+                            raise ValueError("Decompressed file exceeds maximum size (gzip bomb protection)")
+                        out_file.write(block)
+
+            # Clean up gz file
+            gz_path.unlink(missing_ok=True)
+        else:
+            # Assemble chunks directly
+            with open(output_path, 'wb') as outfile:
+                for i in range(upload_info["total_chunks"]):
+                    chunk_path = chunks_dir / f"chunk_{i:06d}"
+                    if chunk_path.exists():
+                        with open(chunk_path, 'rb') as chunk_file:
+                            outfile.write(chunk_file.read())
+
+        # Update upload state
+        upload_info["upload_state"] = "completed"
+        upload_path = run_dir / "upload_info.json"
+        with open(upload_path, 'w') as f:
+            json.dump(upload_info, f, indent=2)
+
+        # Update metadata with filename
+        metadata = self.load_metadata(run_id)
+        if metadata:
+            metadata.source_filename = filename
+            self.save_metadata(metadata)
+
+        # Clean up chunks directory
+        if chunks_dir.exists():
+            shutil.rmtree(chunks_dir)
+
+        return output_path

@@ -6,6 +6,9 @@ import type {
   Profile,
   CandidateKeysResponse,
   ConfirmKeysRequest,
+  ChunkedUploadInit,
+  ChunkedUploadStatus,
+  ChunkedUploadComplete,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -127,6 +130,46 @@ export const api = {
     return fetchApi(`/runs/${runId}/confirm-keys`, {
       method: 'POST',
       body: JSON.stringify(request),
+    });
+  },
+
+  // Chunked Upload
+  async initChunkedUpload(runId: string, init: ChunkedUploadInit): Promise<ChunkedUploadStatus> {
+    return fetchApi(`/runs/${runId}/upload/init`, {
+      method: 'POST',
+      body: JSON.stringify(init),
+    });
+  },
+
+  async uploadChunk(runId: string, chunkIndex: number, chunk: Blob): Promise<ChunkedUploadStatus> {
+    const formData = new FormData();
+    formData.append('file', chunk);
+
+    const url = `${API_BASE_URL}/runs/${runId}/upload/chunk?chunk_index=${chunkIndex}`;
+    const response = await fetch(url, {
+      method: 'PATCH',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        errorData.detail || `Chunk upload failed: HTTP ${response.status}`,
+        response.status,
+        errorData
+      );
+    }
+
+    return await response.json();
+  },
+
+  async getUploadStatus(runId: string): Promise<ChunkedUploadStatus> {
+    return fetchApi(`/runs/${runId}/upload/status`);
+  },
+
+  async completeChunkedUpload(runId: string): Promise<ChunkedUploadComplete> {
+    return fetchApi(`/runs/${runId}/upload/complete`, {
+      method: 'POST',
     });
   },
 

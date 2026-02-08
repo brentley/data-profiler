@@ -85,6 +85,19 @@ export interface DateStats {
   out_of_range_count: number;
 }
 
+export interface QualityData {
+  completeness_pct: number;
+  uniqueness_pct: number;
+  entropy: number | null;
+  detected_patterns: Record<string, number>;
+  leading_whitespace_count: number;
+  trailing_whitespace_count: number;
+  empty_string_count: number;
+  outlier_count: number;
+  outlier_pct: number;
+  phi_risk_flags: string[];
+}
+
 export interface ColumnProfile {
   name: string;
   type: ColumnType;
@@ -95,6 +108,7 @@ export interface ColumnProfile {
   numeric_stats?: NumericStats;
   money_rules?: MoneyRules;
   date_stats?: DateStats;
+  quality?: QualityData;
 }
 
 export interface FileInfo {
@@ -126,5 +140,32 @@ export interface CandidateKeysResponse {
 }
 
 export interface ConfirmKeysRequest {
-  keys: string[][];
+  keys: string[];
+}
+
+export type UploadState = 'initialized' | 'uploading' | 'completed' | 'failed';
+
+export interface ChunkedUploadInit {
+  filename: string;
+  total_size: number;
+  chunk_size?: number;  // defaults to 5MB
+}
+
+export interface ChunkedUploadStatus {
+  run_id: string;
+  upload_state: UploadState;
+  filename: string;
+  total_size: number;
+  bytes_received: number;
+  chunks_received: number;
+  total_chunks: number;
+  progress_pct: number;
+}
+
+export interface ChunkedUploadComplete {
+  run_id: string;
+  state: RunState;
+  message: string;
+  total_size: number;
+  chunks_received: number;
 }

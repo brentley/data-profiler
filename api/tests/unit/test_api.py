@@ -148,7 +148,7 @@ class TestCreateRun:
         response = client.post(
             "/runs",
             json={
-                "delimiter": ";",  # Invalid - only | and , allowed
+                "delimiter": "X",  # Invalid - only |, comma, tab, ; allowed
                 "quoted": True,
                 "expect_crlf": True
             }
@@ -157,7 +157,7 @@ class TestCreateRun:
         assert response.status_code == 422  # Validation error
 
     def test_create_run_missing_delimiter(self, client):
-        """Test creating a run without delimiter fails."""
+        """Test creating a run without delimiter succeeds (auto-detect)."""
         response = client.post(
             "/runs",
             json={
@@ -166,7 +166,7 @@ class TestCreateRun:
             }
         )
 
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 201  # Delimiter is optional for auto-detect
 
     def test_create_run_defaults(self, client):
         """Test default values are applied."""
@@ -281,7 +281,7 @@ class TestUploadFile:
         response = client.post(f"/runs/{run_id}/upload", files=files)
 
         assert response.status_code == 400
-        assert "decompress" in response.json()["detail"].lower()
+        assert "gzip" in response.json()["detail"].lower()
 
 
 class TestGetRunStatus:

@@ -276,6 +276,11 @@ class AuditLogger:
             header_names: Column names from header (metadata, not data)
             error_rollup: Dictionary of error codes to counts
         """
+        from ..utils.security import sanitize_for_logging
+
+        # Security: Sanitize header names to prevent log injection
+        safe_headers = [sanitize_for_logging(h) for h in header_names]
+
         entry = AuditEntry(
             timestamp=self._now(),
             event_type=AuditEventType.PARSING_COMPLETED,
@@ -283,7 +288,7 @@ class AuditLogger:
             details={
                 "row_count": row_count,
                 "column_count": column_count,
-                "header_names": header_names,
+                "header_names": safe_headers,
                 "error_rollup": error_rollup
             }
         )

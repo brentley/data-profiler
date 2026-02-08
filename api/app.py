@@ -4,14 +4,17 @@ VQ8 Data Profiler API.
 FastAPI application for data profiling with run lifecycle management.
 """
 
+import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 from .models.run import HealthResponse
 from .routers import runs
@@ -43,9 +46,54 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Middleware to limit request body size to prevent memory exhaustion."""
+    # Skip check for file upload endpoints (they have their own limits)
+    if request.url.path.endswith("/upload") or "/upload/chunk" in request.url.path:
+        return await call_next(request)
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        max_size = 10 * 1024 * 1024  # 10MB for JSON
+        if int(content_length) > max_size:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={
+                    "detail": f"Request body too large. Maximum size: {max_size} bytes",
+                    "error_code": "E_REQUEST_TOO_LARGE"
+                }
+            )
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    if os.getenv("HTTPS", "false").lower() == "true":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+# TODO(security): Add rate limiting to prevent API abuse
+# Options:
+# 1. Infrastructure level (Nginx): limit_req_zone
+# 2. Application level (slowapi): pip install slowapi
+# Recommended limits:
+# - POST /runs: 10/minute (run creation)
+# - POST /runs/{id}/upload: 5/minute (file uploads)
+# - GET endpoints: 100/minute (status checks)
 
 
 # Global exception handler
@@ -54,6 +102,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     """
     Global exception handler for unhandled errors.
 
+    Security: Prevents information leakage in error messages.
+
     Args:
         request: FastAPI request
         exc: Exception that was raised
@@ -61,12 +111,16 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     Returns:
         JSONResponse with error details
     """
+    # Log full error internally (with stack trace)
+    logger.error("Unhandled exception on %s", request.url.path, exc_info=True)
+
+    # Return generic error to user (don't leak internal details)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "Internal server error",
             "error_code": "E_INTERNAL_ERROR",
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 
@@ -84,7 +138,7 @@ async def health_check() -> HealthResponse:
     """
     return HealthResponse(
         status="ok",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         version=API_VERSION
     )
 

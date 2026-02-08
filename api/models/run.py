@@ -224,6 +224,9 @@ class ColumnProfileResponse(BaseModel):
     # Top values
     top_values: List[Dict[str, Any]] = Field(default_factory=list)
 
+    # Quality rules analysis
+    quality: Optional[Dict[str, Any]] = None
+
 
 class CandidateKey(BaseModel):
     """Candidate key suggestion."""
@@ -284,3 +287,39 @@ class DuplicateDetectionResponse(BaseModel):
     total_duplicate_rows: int = Field(..., description="Total number of duplicate rows")
     duplicate_percentage: float = Field(..., description="Percentage of rows that are duplicates")
     duplicate_groups: List[DuplicateGroup] = Field(default_factory=list, description="Top duplicate groups")
+
+
+class UploadState(str, Enum):
+    """Upload states for chunked uploads."""
+    INITIALIZED = "initialized"
+    UPLOADING = "uploading"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ChunkedUploadInit(BaseModel):
+    """Request to initialize a chunked upload."""
+    filename: str = Field(..., description="Original filename", min_length=1, max_length=255)
+    total_size: int = Field(..., gt=0, le=10 * 1024 * 1024 * 1024, description="Total file size in bytes (max 10GB)")
+    chunk_size: int = Field(default=5 * 1024 * 1024, gt=0, le=50 * 1024 * 1024, description="Chunk size in bytes (default 5MB, max 50MB)")
+
+
+class ChunkedUploadStatus(BaseModel):
+    """Status of a chunked upload."""
+    run_id: UUID
+    upload_state: UploadState
+    filename: str
+    total_size: int
+    bytes_received: int
+    chunks_received: int
+    total_chunks: int
+    progress_pct: float
+
+
+class ChunkedUploadComplete(BaseModel):
+    """Response when chunked upload is complete."""
+    run_id: UUID
+    state: RunState
+    message: str
+    total_size: int
+    chunks_received: int
